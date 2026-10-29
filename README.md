@@ -4,6 +4,12 @@ CVFetch is a private web interface for searching `@CVFilesearch_Bot` using your 
 
 Only use it with content you are authorized to access and share. Keep this repository private: the app handles a Telegram user session and can post to the destination channel.
 
+## Search flow
+
+When `TMDB_API_KEY` is configured, search first shows matching movies and TV series from TMDB. Choose the right title and CVFetch searches the Telegram bot using the canonical title and year. If TMDB is unavailable or not configured, the page offers direct Telegram search. As Telegram result pages arrive, they appear immediately; you can select loaded files and queue Fetch before pagination finishes. Fetch begins after the page scan releases the Telegram connection. Captions use the selected TMDB title and year with quality, source, codec, and language details retained from the Telegram result.
+
+The website includes TMDB's required logo and attribution notice.
+
 ## Deploy on Render
 
 1. Create a **new private GitHub repository** named `cvfetch` and upload the contents of this folder. Do not upload `.env`, Telegram session files, or database credentials.
