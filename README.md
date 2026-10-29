@@ -20,7 +20,7 @@ The website includes TMDB's required logo and attribution notice.
    | Variable | Where to get it |
    | --- | --- |
    | `API_ID` and `API_HASH` | Create an app at [my.telegram.org](https://my.telegram.org) |
-   | `TMDB_API_KEY` | Optional TMDB API key from [TMDB account API settings](https://www.themoviedb.org/settings/api); enables title selection before Telegram search |
+   | `TMDB_API_KEY` | Optional; add in Render Environment from [TMDB account API settings](https://www.themoviedb.org/settings/api) to enable title selection |
    | `AUTH_CHANNEL` | Your destination channel ID or public username; the account must be able to post there |
    | `WEB_PASSWORD` | A long, unique password for the CVFetch website |
    | `FLASK_SECRET_KEY` | A fresh random secret used to protect website sign-in cookies |
