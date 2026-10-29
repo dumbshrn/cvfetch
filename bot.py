@@ -37,6 +37,7 @@ API_HASH = required_env("API_HASH")
 SESSION_NAME = os.getenv("SESSION_NAME", "cvfetch_user").strip() or "cvfetch_user"
 AUTH_CHANNEL = required_env("AUTH_CHANNEL")
 CV_BOT = os.getenv("CV_BOT", "CVFilesearch_Bot").strip().lstrip("@")
+REFRESH_TRIGGER = "#cvfetch_refresh"
 HOST = os.getenv("HOST", "127.0.0.1").strip()
 PORT = int(os.getenv("PORT", "5055"))
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "45"))
@@ -571,7 +572,7 @@ async def click_result(item: dict[str, Any]) -> tuple[Message | None, int]:
     return file_msg, max(latest_id, file_msg.id if file_msg else latest_id)
 
 
-async def copy_media_to_destination(client: Client, file_msg: Message, caption: str) -> None:
+async def copy_media_to_destination(client: Client, file_msg: Message, caption: str) -> int:
     """Resolve both Telegram peers before copying media with the cleaned caption."""
     target: int | str = AUTH_CHANNEL
     if re.fullmatch(r"-?\d+", AUTH_CHANNEL):
@@ -609,6 +610,7 @@ async def copy_media_to_destination(client: Client, file_msg: Message, caption: 
                 "Telegram could not resolve the source file or destination channel. Check AUTH_CHANNEL and make sure the connected account has opened the source bot and can post in the destination."
             ) from exc
         raise
+    return destination.id
 
 
 async def search_cv_bot(session_id: str, query: str) -> None:
@@ -654,6 +656,7 @@ async def fetch_selected(session_id: str, indices: list[int]) -> None:
             return
         results = session["results"]
     set_session(session_id, status="fetching", fetched=0, total=len(indices), fetch_log=[])
+    trigger_chat_id = None
     try:
         async with operation_lock:
             client = current_userbot()
@@ -665,7 +668,7 @@ async def fetch_selected(session_id: str, indices: list[int]) -> None:
                     file_msg, _ = await click_result(item)
                     if not file_msg:
                         raise TimeoutError("No media arrived before timeout.")
-                    await copy_media_to_destination(client, file_msg, item["clean_name"])
+                    trigger_chat_id = await copy_media_to_destination(client, file_msg, item["clean_name"])
                     with state_lock:
                         session["fetched"] += 1
                         session["fetch_log"].append({"ok": True, "text": item["clean_name"]})
@@ -679,6 +682,11 @@ async def fetch_selected(session_id: str, indices: list[int]) -> None:
                     with state_lock:
                         session["fetch_log"].append({"ok": False, "text": f"{item['label']} — {exc}"})
     finally:
+        if trigger_chat_id is not None:
+            try:
+                await client.send_message(trigger_chat_id, REFRESH_TRIGGER)
+            except Exception:
+                log.warning("Media was copied, but Telegram-Stremio refresh trigger could not be sent", exc_info=True)
         set_session(session_id, status="done")
 
 
