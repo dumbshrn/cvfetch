@@ -1,0 +1,7 @@
+pyrofork
+tgcrypto
+flask
+python-dotenv
+pymongo[srv]
+cryptography
+
