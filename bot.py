@@ -710,8 +710,8 @@ async def search_cv_bot(session_id: str, query: str) -> None:
             # gets an explicit no-results reply, retry once with punctuation as spaces.
             no_results = bool(reply.text and re.search(r"no results?|not found", reply.text, re.I))
             if no_results and not result_keyboard_buttons(reply):
-                normalized_query = re.sub(r"[^\\w\\s]", " ", query, flags=re.UNICODE)
-                normalized_query = re.sub(r"\\s+", " ", normalized_query).strip()
+                normalized_query = re.sub(r"[^\w\s]", " ", query, flags=re.UNICODE)
+                normalized_query = re.sub(r"\s+", " ", normalized_query).strip()
                 if normalized_query and normalized_query.casefold() != query.casefold():
                     set_session(session_id, status="searching",
                                 notice="No exact match; retrying without punctuation.")
