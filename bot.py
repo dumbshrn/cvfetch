@@ -881,10 +881,16 @@ def api_tmdb_search():
         return jsonify(error="Enter a title of 1 to 120 characters."), 400
     if not TMDB_API_KEY:
         return jsonify(error="TMDB_API_KEY is not set. Add your TMDB API key in Render Environment settings.", needs_api_key=True), 503
-    params = urlencode({"api_key": TMDB_API_KEY, "query": query, "include_adult": "false", "language": "en-US", "page": "1"})
-    url = f"https://api.themoviedb.org/3/search/multi?{params}"
+    params = {"query": query, "include_adult": "false", "language": "en-US", "page": "1"}
+    headers = {"Accept": "application/json"}
+    token = TMDB_API_KEY.removeprefix("Bearer ").strip()
+    if token.count(".") == 2:
+        headers["Authorization"] = f"Bearer {token}"
+    else:
+        params["api_key"] = token
+    url = f"https://api.themoviedb.org/3/search/multi?{urlencode(params)}"
     try:
-        with urlopen(Request(url, headers={"Accept": "application/json"}), timeout=12) as response:
+        with urlopen(Request(url, headers=headers), timeout=12) as response:
             payload = json.load(response)
     except Exception as exc:
         log.warning("TMDB title lookup failed: %s", type(exc).__name__)
