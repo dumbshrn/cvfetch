@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CVFetch</title>
+<style>
+  :root {
+    --bg: #0f0f0f;
+    --card: #1a1a1a;
+    --border: #2a2a2a;
+    --accent: #e50914;
+    --text: #e5e5e5;
+    --muted: #888;
+    --green: #22c55e;
+    --red: #ef4444;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    min-height: 100vh;
+    padding: env(safe-area-inset-top, 0) env(safe-area-inset-right, 0) env(safe-area-inset-bottom, 0) env(safe-area-inset-left, 0);
+  }
+  .header {
+    background: #141414;
+    border-bottom: 1px solid var(--border);
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .header h1 { font-size: 20px; font-weight: 700; color: var(--accent); }
+  .header span { font-size: 13px; color: var(--muted); }
+  .header-links { margin-left: auto; display: flex; gap: 12px; align-items: center; font-size: 13px; }
+  .header-links a { color: #ddd; text-decoration: none; }
+  .header-links button { background: transparent; border: 0; color: #ddd; font: inherit; cursor: pointer; }
+  .container { max-width: 640px; margin: 0 auto; padding: 20px 16px; }
+
+  .search-box {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+  .search-box input {
+    flex: 1;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: 16px;
+    padding: 14px 16px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .search-box input:focus { border-color: var(--accent); }
+  .search-box input::placeholder { color: var(--muted); }
+  .btn {
+    background: var(--accent);
+    border: none;
+    border-radius: var(--radius);
+    color: #fff;
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 600;
+    padding: 14px 20px;
+    transition: opacity 0.2s;
+    white-space: nowrap;
+  }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn:hover:not(:disabled) { opacity: 0.85; }
+  .btn-outline {
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+  }
+
+  .status {
+    text-align: center;
+    padding: 30px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .spinner {
+    width: 32px; height: 32px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 12px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .results-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .results-header h2 { font-size: 16px; font-weight: 600; }
+  .results-header span { font-size: 13px; color: var(--muted); }
+
+  .result-item {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 10px;
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .result-item:hover { border-color: #444; }
+  .result-item.selected {
+    border-color: var(--accent);
+    background: rgba(229,9,20,0.08);
+  }
+  .check {
+    width: 22px; height: 22px;
+    border: 2px solid var(--border);
+    border-radius: 6px;
+    flex-shrink: 0;
+    margin-top: 2px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+  }
+  .selected .check {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .check-mark { display: none; color: #fff; font-size: 13px; font-weight: 700; }
+  .selected .check-mark { display: block; }
+  .result-info { flex: 1; min-width: 0; }
+  .result-label { font-size: 14px; font-weight: 500; line-height: 1.4; word-break: break-word; }
+  .result-clean { font-size: 12px; color: var(--muted); margin-top: 4px; word-break: break-word; }
+
+  .actions {
+    position: sticky;
+    bottom: 0;
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+    padding: 14px 16px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+  .actions .btn { flex: 1; text-align: center; }
+  .selected-count { font-size: 13px; color: var(--muted); white-space: nowrap; }
+
+  .log-box {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    margin-top: 16px;
+  }
+  .log-box h3 { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+  .log-line { font-size: 13px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+  .log-line:last-child { border-bottom: none; }
+  .log-line.ok { color: var(--green); }
+  .log-line.err { color: var(--red); }
+
+  .empty { text-align: center; padding: 40px 20px; color: var(--muted); font-size: 14px; }
+  .tag {
+    display: inline-block;
+    background: rgba(229,9,20,0.15);
+    color: var(--accent);
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 6px;
+    margin-right: 4px;
+    margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>CVFetch</h1>
+    <span>Fetch movies to Stremio</span>
+  </div>
+  <nav class="header-links"><a href="/telegram-login">Telegram</a><form method="post" action="/logout"><button type="submit">Sign out</button></form></nav>
+</div>
+
+<div class="container">
+  <div class="search-box">
+    <input type="text" id="queryInput" placeholder="Movie name..." autocomplete="off" />
+    <button class="btn" id="searchBtn" onclick="doSearch()">Search</button>
+  </div>
+
+  <div id="content">
+    <div class="empty">Search for a movie to get started</div>
+  </div>
+</div>
+
+<div class="actions" id="actions" style="display:none">
+  <span class="selected-count" id="selCount">0 selected</span>
+  <button class="btn btn-outline" onclick="selectAll()">All</button>
+  <button class="btn" id="fetchBtn" onclick="doFetch()">Fetch →</button>
+</div>
+
+<script>
+let currentSession = null;
+let results = [];
+let selected = new Set();
+let pollTimer = null;
+
+const queryInput = document.getElementById('queryInput');
+const content = document.getElementById('content');
+const actions = document.getElementById('actions');
+const selCount = document.getElementById('selCount');
+const searchBtn = document.getElementById('searchBtn');
+const fetchBtn = document.getElementById('fetchBtn');
+
+queryInput.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+
+function setLoading(msg) {
+  content.innerHTML = `<div class="status"><div class="spinner"></div>${msg}</div>`;
+}
+
+function showError(msg) {
+  content.innerHTML = `<div class="status" style="color:var(--red)">${escHtml(msg)}</div>`;
+}
+
+async function doSearch() {
+  const query = queryInput.value.trim();
+  if (!query) return;
+
+  clearPoll();
+  selected.clear();
+  actions.style.display = 'none';
+  searchBtn.disabled = true;
+  setLoading('Searching...');
+
+  try {
+    const res = await fetch('/api/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query })
+    });
+    const data = await res.json();
+      if (data.error) { showError(data.error); searchBtn.disabled = false; return; }
+    currentSession = data.session_id;
+    pollStatus();
+  } catch (e) {
+    showError('Network error');
+    searchBtn.disabled = false;
+  }
+}
+
+function pollStatus() {
+  pollTimer = setInterval(async () => {
+    try {
+      const res = await fetch(`/api/status/${currentSession}`);
+      const data = await res.json();
+      handleStatus(data);
+    } catch (e) {}
+  }, 2000);
+}
+
+function clearPoll() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+function handleStatus(data) {
+  if (data.status === 'searching' || data.status === 'pending') {
+    setLoading('Talking to bot...');
+    return;
+  }
+  if (data.status === 'joining') {
+    setLoading('Joining the required channel, then retrying...');
+    return;
+  }
+  if (data.status === 'error') {
+    clearPoll();
+    showError(data.error || 'Something went wrong');
+    searchBtn.disabled = false;
+    return;
+  }
+  if (data.status === 'no_results') {
+    clearPoll();
+    content.innerHTML = '<div class="empty">No results found. Try a different name.</div>';
+    searchBtn.disabled = false;
+    return;
+  }
+  if (data.status === 'ready') {
+    clearPoll();
+    results = data.results;
+    renderResults();
+    searchBtn.disabled = false;
+    return;
+  }
+  if (data.status === 'fetching') {
+    const done = data.fetched || 0;
+    const total = data.total || 0;
+    setLoading(`Fetching ${done}/${total} files...`);
+    renderLog(data.fetch_log || []);
+    return;
+  }
+  if (data.status === 'done') {
+    clearPoll();
+    setLoading('Done!');
+    renderLog(data.fetch_log || []);
+    actions.style.display = 'none';
+    fetchBtn.disabled = false;
+    searchBtn.disabled = false;
+  }
+}
+
+function renderResults() {
+  if (!results.length) {
+    content.innerHTML = '<div class="empty">No results found</div>';
+    return;
+  }
+
+  const header = `
+    <div class="results-header">
+      <h2>${results.length} result${results.length > 1 ? 's' : ''}</h2>
+      <span>${queryInput.value.trim()}</span>
+    </div>
+  `;
+
+  const items = results.map((r, i) => `
+    <div class="result-item" id="item_${i}" onclick="toggleSelect(${i})">
+      <div class="check"><span class="check-mark">✓</span></div>
+      <div class="result-info">
+        <div class="result-label">${escHtml(r.label)}</div>
+        <div class="result-clean">→ ${escHtml(r.clean_name)}</div>
+      </div>
+    </div>
+  `).join('');
+
+  content.innerHTML = header + items;
+  actions.style.display = 'flex';
+  updateSelCount();
+}
+
+function toggleSelect(i) {
+  if (selected.has(i)) selected.delete(i);
+  else selected.add(i);
+  const el = document.getElementById(`item_${i}`);
+  el.classList.toggle('selected', selected.has(i));
+  updateSelCount();
+}
+
+function selectAll() {
+  if (selected.size === results.length) {
+    selected.clear();
+    document.querySelectorAll('.result-item').forEach(el => el.classList.remove('selected'));
+  } else {
+    results.forEach((_, i) => selected.add(i));
+    document.querySelectorAll('.result-item').forEach(el => el.classList.add('selected'));
+  }
+  updateSelCount();
+}
+
+function updateSelCount() {
+  selCount.textContent = `${selected.size} selected`;
+  fetchBtn.disabled = selected.size === 0;
+}
+
+async function doFetch() {
+  if (!selected.size) return;
+  fetchBtn.disabled = true;
+  clearPoll();
+  setLoading(`Starting fetch for ${selected.size} file(s)...`);
+
+  try {
+    const res = await fetch('/api/fetch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: currentSession, indices: [...selected] })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Could not start fetch');
+    pollStatus();
+  } catch (e) {
+    showError(e.message || 'Network error');
+    fetchBtn.disabled = false;
+  }
+}
+
+function renderLog(lines) {
+  if (!lines.length) return;
+  const existing = document.getElementById('logBox');
+  const html = `
+    <div class="log-box" id="logBox">
+      <h3>Progress</h3>
+      ${lines.map(l => `<div class="log-line ${l.ok ? 'ok' : 'err'}">${escHtml(l.text)}</div>`).join('')}
+    </div>
+  `;
+  if (existing) existing.outerHTML = html;
+  else content.insertAdjacentHTML('beforeend', html);
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+</script>
+</body>
+</html>
+
