@@ -3,6 +3,7 @@
 import asyncio
 import hmac
 import html
+import json
 import logging
 import os
 import re
@@ -11,7 +12,8 @@ import time
 import uuid
 from concurrent.futures import TimeoutError as FutureTimeout
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.request import Request, urlopen
 
 from dotenv import load_dotenv
 from cryptography.fernet import Fernet
@@ -38,6 +40,7 @@ API_HASH = required_env("API_HASH")
 SESSION_NAME = os.getenv("SESSION_NAME", "cvfetch_user").strip() or "cvfetch_user"
 AUTH_CHANNEL = required_env("AUTH_CHANNEL")
 CV_BOT = os.getenv("CV_BOT", "CVFilesearch_Bot").strip().lstrip("@")
+TMDB_API_KEY = os.getenv("TMDB_API_KEY", "").strip()
 REFRESH_TRIGGER = "#cvfetch_refresh"
 HOST = os.getenv("HOST", "127.0.0.1").strip()
 PORT = int(os.getenv("PORT", "5055"))
@@ -115,20 +118,52 @@ def clean_filename(label: str) -> str:
     return (stem or "Telegram media") + ".mkv"
 
 
-def caption_from_result_label(label: str) -> str:
-    """Normalize a search button label into a title Stremio can recognize."""
+def caption_from_result_label(label: str, tmdb: dict[str, Any] | None = None) -> str:
+    """Build a clean Stremio-readable caption, preferring the selected TMDB title."""
     text = html.unescape(label or "")
     text = re.sub(r"^\s*\[[\d.,]+\s*(?:GB|MB|TB)\]\s*", "", text, flags=re.I)
     text = re.sub(r"\\([*_\[\]()~`])", r"\1", text)
     text = re.sub(r"[*_~`]", "", text)
     text = re.sub(r"\\s+", " ", text).strip()
-    # WMR is a release/channel prefix in some search results, not part of the title.
+    text = re.sub(r"\\.(?:mkv|mp4|avi|mov|webm|m4v)\\s*$", "", text, flags=re.I).strip()
     text = re.sub(r"^WMR(?:[ ._:-]+|$)", "", text, flags=re.I)
-    text = re.sub(r"\\s+", " ", text).strip()
-    text = re.sub(r"\\.(?:mkv|mp4|avi|mov|webm|m4v)\\s*$", "", text, flags=re.I)
     text = re.sub(r"^[^\\w]+", "", text, flags=re.UNICODE)
     text = re.sub(r"\\s+", " ", text).strip(" ._-–—\\\\/")
-    return text[:1024] or clean_filename(label).removesuffix(".mkv")
+    if not tmdb or not tmdb.get("title"):
+        return text[:1024] or clean_filename(label).removesuffix(".mkv")
+
+    details = []
+    for pattern in (r"\\b2160\\s*p?\\b|\\b4k\\b", r"\\b1080\\s*p\\b", r"\\b720\\s*p\\b", r"\\b480\\s*p\\b", r"\\b360\\s*p\\b"):
+        match = re.search(pattern, text, re.I)
+        if match:
+            details.append("2160p" if "2160" in match.group(0) or match.group(0).lower() == "4k" else match.group(0).lower().replace(" ", ""))
+            break
+    for pattern, value in ((r"\\bBlu[ .-]?Ray\\b|\\bBRRip\\b", "BluRay"),
+                           (r"\\bWEB[ .-]?DL\\b", "WEB-DL"), (r"\\bWEBRip\\b", "WEBRip"),
+                           (r"\\bHDRip\\b", "HDRip"), (r"\\bHDTV\\b", "HDTV")):
+        if re.search(pattern, text, re.I):
+            details.append(value)
+            break
+    episode = re.search(r"\\bS\\d{1,2}E\\d{1,3}\\b", text, re.I)
+    if episode:
+        details.insert(0, episode.group(0).upper())
+    for pattern, value in ((r"\\bx26[45]\\b", lambda m: m.group(0).lower()),
+                           (r"\\bHEVC\\b", "HEVC"), (r"\\bAV1\\b", "AV1"), (r"\\bHDR10\\+?\\b", "HDR10")):
+        match = re.search(pattern, text, re.I)
+        if match:
+            details.append(value(match) if callable(value) else value)
+            break
+    language_map = (("Malayalam", r"\\b(?:mal|malayalam)\\b"), ("Tamil", r"\\b(?:tam|tamil)\\b"),
+                    ("Telugu", r"\\b(?:tel|telugu)\\b"), ("Hindi", r"\\b(?:hin|hindi)\\b"),
+                    ("Kannada", r"\\b(?:kan|kannada)\\b"), ("English", r"\\b(?:eng|english)\\b"))
+    for name, pattern in language_map:
+        if re.search(pattern, text, re.I):
+            details.append(name)
+            break
+    title = str(tmdb["title"]).strip()
+    year = str(tmdb.get("year") or "").strip()
+    canonical = " ".join(part for part in (title, year, *details) if part)
+    return canonical[:1024]
 
 
 def set_session(session_id: str, **values: Any) -> None:
@@ -678,15 +713,18 @@ async def search_cv_bot(session_id: str, query: str) -> None:
 
 
 async def fetch_selected(session_id: str, indices: list[int]) -> None:
-    with state_lock:
-        session = sessions.get(session_id)
-        if not session:
-            return
-        results = session["results"]
-    set_session(session_id, status="fetching", fetched=0, total=len(indices), fetch_log=[])
     trigger_chat_id = None
+    client = None
     try:
         async with operation_lock:
+            with state_lock:
+                session = sessions.get(session_id)
+                if not session:
+                    return
+                results = session["results"]
+                tmdb = session.get("tmdb")
+            set_session(session_id, status="fetching", fetch_queued=False,
+                        fetched=0, total=len(indices), fetch_log=[])
             client = current_userbot()
             for idx in indices:
                 if idx < 0 or idx >= len(results):
@@ -696,7 +734,7 @@ async def fetch_selected(session_id: str, indices: list[int]) -> None:
                     file_msg, _ = await click_result(item)
                     if not file_msg:
                         raise TimeoutError("No media arrived before timeout.")
-                    trigger_chat_id = await copy_media_to_destination(client, file_msg, caption_from_result_label(item.get("label") or item["clean_name"]))
+                    trigger_chat_id = await copy_media_to_destination(client, file_msg, caption_from_result_label(item.get("label") or item["clean_name"], tmdb))
                     with state_lock:
                         session["fetched"] += 1
                         session["fetch_log"].append({"ok": True, "text": item["clean_name"]})
@@ -710,12 +748,12 @@ async def fetch_selected(session_id: str, indices: list[int]) -> None:
                     with state_lock:
                         session["fetch_log"].append({"ok": False, "text": f"{item['label']} — {exc}"})
     finally:
-        if trigger_chat_id is not None:
+        if client is not None and trigger_chat_id is not None:
             try:
                 await client.send_message(trigger_chat_id, REFRESH_TRIGGER)
             except Exception:
                 log.warning("Media was copied, but Telegram-Stremio refresh trigger could not be sent", exc_info=True)
-        set_session(session_id, status="done")
+        set_session(session_id, status="done", fetch_queued=False)
 
 
 def schedule(coro) -> None:
@@ -833,15 +871,64 @@ def healthz():
     return jsonify(ok=True, telegram_connected=bool(userbot and userbot.is_connected)), 200
 
 
+@web.post("/api/tmdb/search")
+def api_tmdb_search():
+    data = request.get_json(silent=True) or {}
+    query = str(data.get("query", "")).strip()
+    if not query or len(query) > 120:
+        return jsonify(error="Enter a title of 1 to 120 characters."), 400
+    if not TMDB_API_KEY:
+        return jsonify(error="TMDB_API_KEY is not set. Add your TMDB API key in Render Environment settings.", needs_api_key=True), 503
+    params = urlencode({"api_key": TMDB_API_KEY, "query": query, "include_adult": "false", "language": "en-US", "page": "1"})
+    url = f"https://api.themoviedb.org/3/search/multi?{params}"
+    try:
+        with urlopen(Request(url, headers={"Accept": "application/json"}), timeout=12) as response:
+            payload = json.load(response)
+    except Exception as exc:
+        log.warning("TMDB title lookup failed: %s", type(exc).__name__)
+        return jsonify(error="TMDB could not be reached. Try again or search Telegram without TMDB."), 502
+    matches = []
+    for item in payload.get("results", []):
+        media_type = item.get("media_type")
+        if media_type not in {"movie", "tv"}:
+            continue
+        title = str(item.get("title") or item.get("name") or "").strip()
+        date = str(item.get("release_date") or item.get("first_air_date") or "")
+        if not title:
+            continue
+        matches.append({
+            "id": item.get("id"),
+            "media_type": media_type,
+            "title": title,
+            "year": date[:4] if re.match(r"^\\d{4}", date) else "",
+            "overview": str(item.get("overview") or ""),
+            "poster": f"https://image.tmdb.org/t/p/w185{item['poster_path']}" if item.get("poster_path") else "",
+            "original_title": str(item.get("original_title") or item.get("original_name") or ""),
+        })
+        if len(matches) >= 12:
+            break
+    return jsonify(results=matches)
+
+
 @web.post("/api/search")
 def api_search():
     data = request.get_json(silent=True) or {}
     query = str(data.get("query", "")).strip()
     if not query or len(query) > 200:
         return jsonify(error="Enter a search query of 1 to 200 characters."), 400
+    selected_tmdb = data.get("tmdb")
+    tmdb = None
+    if isinstance(selected_tmdb, dict) and str(selected_tmdb.get("title", "")).strip():
+        year = str(selected_tmdb.get("year", "")).strip()
+        tmdb = {
+            "id": selected_tmdb.get("id"),
+            "media_type": "tv" if selected_tmdb.get("media_type") == "tv" else "movie",
+            "title": str(selected_tmdb["title"]).strip()[:200],
+            "year": year if re.fullmatch(r"(?:19|20)\\d{2}", year) else "",
+        }
     session_id = uuid.uuid4().hex
     with state_lock:
-        sessions[session_id] = {"query": query, "status": "pending", "results": [], "created": time.time()}
+        sessions[session_id] = {"query": query, "status": "pending", "results": [], "created": time.time(), "tmdb": tmdb}
     try:
         schedule(search_cv_bot(session_id, query))
     except Exception as exc:
@@ -867,8 +954,8 @@ def api_fetch():
         session = sessions.get(session_id)
         if not session:
             return jsonify(error="Search session not found"), 404
-        if session["status"] != "ready":
-            return jsonify(error="Search results are not ready, or a fetch is already running."), 409
+        if session["status"] not in {"searching", "ready"} or session.get("fetch_queued"):
+            return jsonify(error="A fetch is already running, or no results are available yet."), 409
         if not isinstance(indices, list) or not indices or len(indices) > 100:
             return jsonify(error="Select between 1 and 100 results."), 400
         try:
@@ -877,13 +964,15 @@ def api_fetch():
             return jsonify(error="Invalid selection."), 400
         if any(i < 0 or i >= len(session["results"]) for i in selected):
             return jsonify(error="Selection contains an invalid result."), 400
-        session["status"] = "fetching"
+        if any(not session["results"][i].get("can_fetch") for i in selected):
+            return jsonify(error="One or more selected results cannot be fetched automatically."), 400
+        session["fetch_queued"] = True
     try:
         schedule(fetch_selected(session_id, selected))
     except Exception as exc:
-        set_session(session_id, status="error", error=str(exc))
+        set_session(session_id, fetch_queued=False, error=str(exc))
         return jsonify(error=str(exc)), 503
-    return jsonify(ok=True)
+    return jsonify(ok=True, queued=True)
 
 
 async def main() -> None:
