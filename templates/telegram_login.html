@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connect Telegram · CVFetch</title>
+<style>
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:#10141b;color:#edf2f7;font:16px system-ui,sans-serif;padding:20px}.wrap{max-width:520px;margin:5vh auto;background:#1a2230;border:1px solid #303b4c;border-radius:16px;padding:24px}.brand{color:#ff5364;font-weight:800;font-size:22px}h1{font-size:23px;margin:12px 0}p{color:#abb6c7;line-height:1.55}.step{margin:18px 0}label{display:block;margin:12px 0 7px}input{width:100%;padding:13px;border-radius:9px;border:1px solid #46546a;background:#10141b;color:white;font-size:16px}button{padding:13px 16px;border:0;border-radius:9px;background:#e50914;color:white;font-weight:700;font-size:15px;cursor:pointer;margin-top:12px}button.secondary{background:transparent;border:1px solid #526176}.hidden{display:none}.notice{padding:12px;border-radius:9px;background:#10141b;color:#c5d0df;min-height:46px;margin-top:16px}.bad{color:#ff838b}.good{color:#67e8a5}.foot{display:flex;justify-content:space-between;align-items:center;margin-top:20px}.foot form{margin:0}.small{font-size:13px}
+</style>
+</head>
+<body><main class="wrap">
+  <div class="brand">CVFetch</div>
+  <h1>Connect your Telegram account</h1>
+  <p>CVFetch needs a user session to search the public bot, tap its file buttons, and join channels when needed. Login codes and your two-step password are sent directly to Telegram from this page; never share them in chat.</p>
+  <div id="phoneStep" class="step {% if connected %}hidden{% endif %}">
+    <label for="phone">Phone number with country code</label>
+    <input id="phone" type="tel" placeholder="+14155550123" autocomplete="tel" inputmode="tel">
+    <button onclick="sendCode()">Send Telegram code</button>
+  </div>
+  <div id="codeStep" class="step hidden">
+    <label for="code">Telegram verification code</label>
+    <input id="code" type="text" autocomplete="one-time-code" inputmode="numeric">
+    <button onclick="verifyCode()">Verify code</button>
+  </div>
+  <div id="passwordStep" class="step hidden">
+    <label for="twofa">Two-step verification password</label>
+    <input id="twofa" type="password" autocomplete="current-password">
+    <button onclick="verifyPassword()">Finish login</button>
+  </div>
+  <div id="connectedStep" class="step {% if not connected %}hidden{% endif %}">
+    <p class="good">Telegram is connected. Your encrypted session is saved in the configured database and can be restored after a Render restart.</p>
+    <button onclick="location.href='/'">Open CVFetch</button>
+    <button class="secondary" onclick="disconnectTelegram()">Disconnect this Telegram account</button>
+  </div>
+  <div id="notice" class="notice" role="status">Enter your phone number to begin.</div>
+  <div class="foot"><a class="small" href="/">Back to CVFetch</a><form method="post" action="/logout"><button class="secondary" type="submit">Sign out of web page</button></form></div>
+</main>
+<script>
+const notice=document.getElementById('notice');
+function show(message,bad=false){notice.textContent=message;notice.className='notice'+(bad?' bad':'')}
+async function post(path,body){const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await response.json();if(!response.ok)throw new Error(data.error||'Request failed');return data}
+async function sendCode(){try{const data=await post('/api/auth/send-code',{phone:document.getElementById('phone').value});document.getElementById('phoneStep').classList.add('hidden');document.getElementById('codeStep').classList.remove('hidden');show(data.message)}catch(e){show(e.message,true)}}
+async function verifyCode(){try{const data=await post('/api/auth/verify-code',{code:document.getElementById('code').value});if(data.password_required){document.getElementById('codeStep').classList.add('hidden');document.getElementById('passwordStep').classList.remove('hidden')}else{document.getElementById('codeStep').classList.add('hidden');document.getElementById('connectedStep').classList.remove('hidden')}show(data.message)}catch(e){show(e.message,true)}}
+async function verifyPassword(){try{const data=await post('/api/auth/verify-password',{password:document.getElementById('twofa').value});document.getElementById('passwordStep').classList.add('hidden');document.getElementById('connectedStep').classList.remove('hidden');show(data.message)}catch(e){show(e.message,true)}}
+async function disconnectTelegram(){try{await post('/api/auth/logout',{});location.reload()}catch(e){show(e.message,true)}}
+</script>
+</body>
+</html>
+
