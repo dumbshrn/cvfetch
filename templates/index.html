@@ -285,7 +285,10 @@ function handleStatus(data) {
   if (data.status === 'done') {
     clearPoll();
     fetchQueued = false;
-    setLoading('All done — your channel has been updated.');
+    const fetchFailures = (data.fetch_log || []).filter(entry => !entry.ok).length;
+    setLoading(fetchFailures
+      ? `Fetch finished with ${fetchFailures} issue${fetchFailures === 1 ? '' : 's'}. See details below.`
+      : 'All done — your channel has been updated.');
     renderLog(data.fetch_log || []);
     actions.style.display = 'none';
     fetchBtn.disabled = false;
