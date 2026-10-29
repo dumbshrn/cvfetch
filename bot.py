@@ -377,7 +377,12 @@ async def press_callback(message: Message, button: Any) -> None:
     for row_index, row in enumerate(markup.inline_keyboard):
         for column_index, candidate in enumerate(row):
             if candidate is button:
-                await message.click(column_index, row_index, timeout=15)
+                try:
+                    # Some bots update the page without answering the callback query.
+                    # Keep waiting for the message update even if this click times out.
+                    await message.click(column_index, row_index, timeout=5)
+                except TimeoutError:
+                    log.debug("Callback button did not return an answer; waiting for the message update")
                 return
     raise RuntimeError("The Telegram button is no longer available. Search again.")
 
@@ -415,7 +420,10 @@ async def move_to_result_page(message: Message, target_page: int) -> Message:
         if not button:
             raise RuntimeError(f"Could not navigate to result page {target_page}.")
         old_signature = keyboard_signature(current)
-        await press_callback(current, button)
+        try:
+            await press_callback(current, button)
+        except Exception as exc:
+            log.warning("Page navigation click reported an error: %s", exc)
         updated = await wait_for_page_change(current, old_signature)
         if not updated:
             raise TimeoutError("The search bot did not load the next results page.")
@@ -461,12 +469,11 @@ async def collect_result_pages(first_message: Message, max_pages: int = 20) -> t
         old_signature = signature
         try:
             await press_callback(current, next_button)
-            updated = await wait_for_page_change(current, old_signature)
         except Exception as exc:
-            log.warning("Could not advance search results to the next page: %s", exc)
-            updated = None
+            log.warning("Page navigation click reported an error: %s", exc)
+        updated = await wait_for_page_change(current, old_signature)
         if not updated:
-            warning = "Could not load every results page. Showing the pages the bot returned."
+            warning = f"Could not read page {page_number + 1}. The bot did not return a detectable page update."
             break
         current = updated
         fallback_page += 1
@@ -564,6 +571,46 @@ async def click_result(item: dict[str, Any]) -> tuple[Message | None, int]:
     return file_msg, max(latest_id, file_msg.id if file_msg else latest_id)
 
 
+async def copy_media_to_destination(client: Client, file_msg: Message, caption: str) -> None:
+    """Resolve both Telegram peers before copying media with the cleaned caption."""
+    target: int | str = AUTH_CHANNEL
+    if re.fullmatch(r"-?\d+", AUTH_CHANNEL):
+        target = int(AUTH_CHANNEL)
+    destination = None
+    try:
+        destination = await client.get_chat(target)
+    except Exception as exc:
+        # A private channel ID can be absent from the local peer cache until its
+        # dialogs are loaded after a fresh web login or service restart.
+        if isinstance(target, int):
+            try:
+                async for dialog in client.get_dialogs():
+                    if dialog.chat.id == target:
+                        destination = dialog.chat
+                        break
+            except Exception:
+                log.debug("Could not refresh Telegram dialog peers", exc_info=True)
+        if destination is None:
+            raise RuntimeError(
+                "CVFetch could not resolve the destination channel. Check AUTH_CHANNEL and confirm the connected Telegram account can post there."
+            ) from exc
+
+    source_chat_id = file_msg.chat.id if file_msg.chat else CV_BOT
+    try:
+        await client.copy_message(
+            chat_id=destination.id,
+            from_chat_id=source_chat_id,
+            message_id=file_msg.id,
+            caption=caption,
+        )
+    except Exception as exc:
+        if "PEER_ID_INVALID" in str(exc):
+            raise RuntimeError(
+                "Telegram could not resolve the source file or destination channel. Check AUTH_CHANNEL and make sure the connected account has opened the source bot and can post in the destination."
+            ) from exc
+        raise
+
+
 async def search_cv_bot(session_id: str, query: str) -> None:
     set_session(session_id, status="searching", results=[], error=None)
     try:
@@ -618,9 +665,7 @@ async def fetch_selected(session_id: str, indices: list[int]) -> None:
                     file_msg, _ = await click_result(item)
                     if not file_msg:
                         raise TimeoutError("No media arrived before timeout.")
-                    # Preserve the media itself while setting the target filename as its caption.
-                    await client.copy_message(chat_id=AUTH_CHANNEL, from_chat_id=CV_BOT,
-                                              message_id=file_msg.id, caption=item["clean_name"])
+                    await copy_media_to_destination(client, file_msg, item["clean_name"])
                     with state_lock:
                         session["fetched"] += 1
                         session["fetch_log"].append({"ok": True, "text": item["clean_name"]})
