@@ -642,7 +642,7 @@ async def click_result(item: dict[str, Any]) -> tuple[Message | None, int]:
             raise TimeoutError(f"No file response was recognized. Telegram replied: {detail}")
         return None, latest_id
     latest_id = max(latest_id, response.id)
-    if is_unsupported_response(response) and not has_media(response):
+    if is_unsupported_response(response):
         raise UnsupportedResultError("Telegram says this file is not supported. Choose another result.")
     if has_media(response):
         return response, latest_id
@@ -681,7 +681,7 @@ async def click_result(item: dict[str, Any]) -> tuple[Message | None, int]:
         )
         if followup:
             latest_id = max(latest_id, followup.id)
-            if is_unsupported_response(followup) and not has_media(followup):
+            if is_unsupported_response(followup):
                 raise UnsupportedResultError("Telegram says this file is not supported. Choose another result.")
             if has_media(followup):
                 return followup, latest_id
@@ -709,7 +709,7 @@ async def click_result(item: dict[str, Any]) -> tuple[Message | None, int]:
         same_id_signature=same_id_signature,
         on_new_message=remember_reply,
     )
-    if file_msg and is_unsupported_response(file_msg) and not has_media(file_msg):
+    if file_msg and is_unsupported_response(file_msg):
         raise UnsupportedResultError("Telegram says this file is not supported. Choose another result.")
     return file_msg, max(latest_id, file_msg.id if file_msg else latest_id)
 
