@@ -368,15 +368,18 @@ def navigation_button(msg: Message, direction: str) -> Any | None:
 
 
 async def press_callback(message: Message, button: Any) -> None:
-    """Press a specific callback button instead of relying on a possibly repeated label."""
+    """Press the exact keyboard position using Pyrogram's documented click helper."""
     if not button.callback_data:
         raise RuntimeError("This Telegram button cannot be clicked automatically.")
-    await current_userbot().request_callback_answer(
-        chat_id=message.chat.id,
-        message_id=message.id,
-        callback_data=button.callback_data,
-        timeout=15,
-    )
+    markup = message.reply_markup
+    if not markup or not getattr(markup, "inline_keyboard", None):
+        raise RuntimeError("The Telegram button is no longer available. Search again.")
+    for row_index, row in enumerate(markup.inline_keyboard):
+        for column_index, candidate in enumerate(row):
+            if candidate is button:
+                await message.click(column_index, row_index, timeout=15)
+                return
+    raise RuntimeError("The Telegram button is no longer available. Search again.")
 
 
 async def wait_for_page_change(message: Message, old_signature: tuple[Any, ...], timeout: int = 30) -> Message | None:
