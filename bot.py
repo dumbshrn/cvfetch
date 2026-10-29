@@ -685,21 +685,41 @@ async def search_cv_bot(session_id: str, query: str) -> None:
     try:
         async with operation_lock:
             client = current_userbot()
-            sent = await client.send_message(CV_BOT, query)
-            reply = await wait_for_bot_messages(
-                sent.id, REQUEST_TIMEOUT,
-                lambda m: bool(keyboard_buttons(m)) or bool(m.text and re.search(r"no results?|not found", m.text, re.I)),
-            )
-            if reply and await maybe_join_required_chat(reply):
-                set_session(session_id, status="joining")
-                await asyncio.sleep(2)
-                retry = await client.send_message(CV_BOT, query)
+
+            async def request_results(search_query: str) -> Message | None:
+                sent = await client.send_message(CV_BOT, search_query)
                 reply = await wait_for_bot_messages(
-                    retry.id, REQUEST_TIMEOUT,
+                    sent.id, REQUEST_TIMEOUT,
                     lambda m: bool(keyboard_buttons(m)) or bool(m.text and re.search(r"no results?|not found", m.text, re.I)),
                 )
+                if reply and await maybe_join_required_chat(reply):
+                    set_session(session_id, status="joining")
+                    await asyncio.sleep(2)
+                    retry = await client.send_message(CV_BOT, search_query)
+                    reply = await wait_for_bot_messages(
+                        retry.id, REQUEST_TIMEOUT,
+                        lambda m: bool(keyboard_buttons(m)) or bool(m.text and re.search(r"no results?|not found", m.text, re.I)),
+                    )
+                return reply
+
+            reply = await request_results(query)
             if not reply:
                 raise TimeoutError("No response from the search bot. Try again or check the bot in Telegram.")
+
+            # Some catalog bots treat hyphens/colons literally. If the exact TMDB title
+            # gets an explicit no-results reply, retry once with punctuation as spaces.
+            no_results = bool(reply.text and re.search(r"no results?|not found", reply.text, re.I))
+            if no_results and not result_keyboard_buttons(reply):
+                normalized_query = re.sub(r"[^\\w\\s]", " ", query, flags=re.UNICODE)
+                normalized_query = re.sub(r"\\s+", " ", normalized_query).strip()
+                if normalized_query and normalized_query.casefold() != query.casefold():
+                    set_session(session_id, status="searching",
+                                notice="No exact match; retrying without punctuation.")
+                    retry_reply = await request_results(normalized_query)
+                    if not retry_reply:
+                        raise TimeoutError("No response from the search bot during the punctuation-free retry.")
+                    reply = retry_reply
+
             def publish_page(partial_results, pages_loaded, pages_total, message_id):
                 set_session(session_id, status="searching", results=partial_results,
                             result_msg_id=message_id, pages_loaded=pages_loaded,
