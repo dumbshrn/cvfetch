@@ -758,14 +758,17 @@ async def copy_media_to_destination(client: Client, file_msg: Message, caption: 
 async def wait_for_destination_unsupported(
     client: Client,
     chat_id: int,
-    copied_message_id: int,
+    copied_message_ids: list[int],
     timeout: int = 10,
 ) -> Message | None:
-    """Wait up to 10 seconds for a new Telegram-Stremio rejection in the destination channel."""
+    """Wait once after a fetched batch for a new Telegram-Stremio rejection."""
+    if not copied_message_ids:
+        return None
+    first_copied_id = min(copied_message_ids)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         async for msg in client.get_chat_history(chat_id, limit=30):
-            if msg.id > copied_message_id and is_unsupported_response(msg):
+            if msg.id > first_copied_id and is_unsupported_response(msg):
                 return msg
         await asyncio.sleep(0.75)
     return None
@@ -857,6 +860,7 @@ async def fetch_selected(session_id: str, indices: list[int]) -> None:
                         fetched=0, total=len(indices), fetch_log=[],
                         fetch_interrupted=False, failed_index=None, fetched_indices=[], warning=None)
             client = current_userbot()
+            copied_messages: list[tuple[int, Message]] = []
             for idx in indices:
                 if idx < 0 or idx >= len(results):
                     continue
@@ -870,20 +874,13 @@ async def fetch_selected(session_id: str, indices: list[int]) -> None:
                         file_msg,
                         caption_from_result_label(item.get("label") or item["clean_name"], tmdb),
                     )
-                    destination_id = copied_message.chat.id
-                    await client.send_message(destination_id, REFRESH_TRIGGER)
-                    rejection = await wait_for_destination_unsupported(
-                        client, destination_id, copied_message.id
-                    )
-                    if rejection:
-                        raise UnsupportedResultError(
-                            "Telegram-Stremio replied “Not supported” to this file. Choose another result."
-                        )
+                    copied_messages.append((idx, copied_message))
                     with state_lock:
                         session["fetched"] += 1
                         session["fetched_indices"].append(idx)
-                        session["fetch_log"].append({"ok": True, "text": item["clean_name"]})
-                    await asyncio.sleep(1)
+                        session["fetch_log"].append({
+                            "ok": True, "text": item["clean_name"], "index": idx
+                        })
                 except UnsupportedResultError as exc:
                     log.info("Stopping batch after unsupported result: %s", item["label"])
                     with state_lock:
@@ -899,6 +896,50 @@ async def fetch_selected(session_id: str, indices: list[int]) -> None:
                     log.exception("Fetch failed for %s", item["label"])
                     with state_lock:
                         session["fetch_log"].append({"ok": False, "text": f"{item['label']} — {exc}"})
+
+            # Refresh and check for an unsupported reply once for the whole batch.
+            if copied_messages:
+                destination_id = copied_messages[-1][1].chat.id
+                try:
+                    await client.send_message(destination_id, REFRESH_TRIGGER)
+                    rejection = await wait_for_destination_unsupported(
+                        client,
+                        destination_id,
+                        [message.id for _, message in copied_messages],
+                    )
+                except Exception:
+                    rejection = None
+                    log.warning("Could not complete the Telegram-Stremio batch refresh check", exc_info=True)
+
+                if rejection:
+                    reply_to_id = getattr(rejection, "reply_to_message_id", None)
+                    failed_copy = next(
+                        ((idx, message) for idx, message in copied_messages
+                         if message.id == reply_to_id),
+                        None,
+                    )
+                    if failed_copy is None:
+                        earlier_copies = [
+                            (idx, message) for idx, message in copied_messages
+                            if message.id < rejection.id
+                        ]
+                        failed_copy = max(earlier_copies, key=lambda pair: pair[1].id, default=None)
+                    if failed_copy:
+                        failed_idx, _ = failed_copy
+                        failed_label = results[failed_idx]["label"]
+                        rejection_text = (
+                            "Telegram-Stremio replied “Not supported”. Choose another result."
+                        )
+                        with state_lock:
+                            for entry in reversed(session["fetch_log"]):
+                                if entry.get("index") == failed_idx and entry.get("ok"):
+                                    entry.update({
+                                        "ok": False,
+                                        "text": f"{failed_label} — {rejection_text}",
+                                    })
+                                    break
+                            session["failed_index"] = failed_idx
+                        return_to_selection = True
     finally:
         if return_to_selection:
             set_session(session_id, status="ready", fetch_queued=False,
