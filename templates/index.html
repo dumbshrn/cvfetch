@@ -16,6 +16,8 @@ button,input{font:inherit}.header{display:flex;align-items:center;gap:12px;paddi
 .actions{position:fixed;z-index:12;left:50%;bottom:max(14px,env(safe-area-inset-bottom));display:flex;align-items:center;gap:8px;width:min(100% - 28px,620px);padding:9px;transform:translateX(-50%);border:1px solid #333;border-radius:13px;background:rgba(12,12,12,.96);box-shadow:0 10px 35px rgba(0,0,0,.6)}.actions .btn{flex:1;text-align:center}.selected-count{padding:0 7px;color:#ccc;font-size:12px;white-space:nowrap}.log-box{margin-top:14px;padding:14px;border:1px solid #292929;border-radius:11px;background:#101010}.log-box h3{margin-bottom:8px;font-size:13px}.log-line{padding:6px 0;border-bottom:1px solid #292929;font-size:12px}.log-line:last-child{border-bottom:0}.log-line.ok,.log-line.err{color:#ddd}.empty{padding:34px 18px;color:#999;font-size:14px;text-align:center}
 @media(max-width:600px){.header{padding:12px 15px}.header-links{gap:11px;font-size:12px}.container{width:calc(100% - 26px);padding-top:30px}.search-card{padding:12px}.search-box{flex-direction:column}.search-box .btn{width:100%}.results-header{align-items:flex-start;flex-direction:column;gap:4px}.results-header span{text-align:left}.actions{width:calc(100% - 18px);gap:5px;padding:7px}.actions .btn{padding:11px 8px;font-size:12px}.selected-count{padding:0 3px;font-size:11px}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+
+.tmdb-note{margin-top:9px;color:#888;font-size:11px}.tmdb-note a{color:#bbb}.tmdb-list{display:grid;gap:9px;margin-top:16px}.tmdb-card{display:flex;align-items:center;gap:14px;padding:12px;border:1px solid #292929;border-radius:12px;background:#101010}.tmdb-poster{flex:0 0 52px;width:52px;height:76px;object-fit:cover;border:1px solid #333;border-radius:6px;background:#181818;filter:grayscale(1)}.tmdb-poster-placeholder{display:grid;place-items:center;color:#888;font-size:10px}.tmdb-info{flex:1;min-width:0}.tmdb-title{font-weight:700;font-size:14px}.tmdb-meta{margin-top:4px;color:#999;font-size:11px;text-transform:uppercase}.tmdb-overview{margin-top:6px;color:#aaa;font-size:12px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.tmdb-card .btn{padding:9px 12px;font-size:12px}
 </style>
 </head>
 <body>
@@ -43,6 +45,7 @@ button,input{font:inherit}.header{display:flex;align-items:center;gap:12px;paddi
       <button class="btn" id="searchBtn" onclick="doSearch()">Search</button>
     </div>
   </section>
+  <p class="tmdb-note">Title matches powered by <a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer">TMDB</a>.</p>
 
   <div id="content">
     <div class="empty">Search for a movie to get started</div>
@@ -63,6 +66,8 @@ let pollTimer = null;
 let pollBusy = false;
 let lastRenderKey = '';
 let searchComplete = false;
+let tmdbResults = [];
+let fetchQueued = false;
 
 const queryInput = document.getElementById('queryInput');
 const content = document.getElementById('content');
@@ -88,28 +93,111 @@ async function doSearch() {
   clearPoll();
   lastRenderKey = '';
   searchComplete = false;
+  fetchQueued = false;
   selected.clear();
+  results = [];
   actions.style.display = 'none';
   searchBtn.disabled = true;
-  setLoading('Searching...');
+  setLoading('Finding movie and show matches...');
 
   try {
-    const res = await fetch('/api/search', {
+    const res = await fetch('/api/tmdb/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query })
     });
     const data = await res.json();
-      if (data.error) { showError(data.error); searchBtn.disabled = false; return; }
+    if (!res.ok) {
+      if (data.needs_api_key) renderTmdbFallback(data.error);
+      else renderTmdbFallback(data.error || 'TMDB search failed.');
+      searchBtn.disabled = false;
+      return;
+    }
+    tmdbResults = data.results || [];
+    renderTmdbMatches();
+    searchBtn.disabled = false;
+  } catch (e) {
+    renderTmdbFallback('Could not reach TMDB. You can still search Telegram directly.');
+    searchBtn.disabled = false;
+  }
+}
+
+function renderTmdbMatches() {
+  if (!tmdbResults.length) {
+    renderTmdbFallback('No movie or show matches found. You can search Telegram with the text you entered.');
+    return;
+  }
+  const cards = tmdbResults.map((item, i) => {
+    const image = item.poster
+      ? '<img class="tmdb-poster" src="' + escHtml(item.poster) + '" alt="" loading="lazy">'
+      : '<div class="tmdb-poster tmdb-poster-placeholder">TMDB</div>';
+    const year = item.year ? ' · ' + escHtml(item.year) : '';
+    const overview = item.overview ? '<p class="tmdb-overview">' + escHtml(item.overview) + '</p>' : '';
+    return '<article class="tmdb-card">' + image +
+      '<div class="tmdb-info"><div class="tmdb-title">' + escHtml(item.title) + '</div>' +
+      '<div class="tmdb-meta">' + (item.media_type === 'tv' ? 'TV series' : 'Movie') + year + '</div>' +
+      overview + '</div><button class="btn" onclick="chooseTmdb(' + i + ')">Use title</button></article>';
+  }).join('');
+  content.innerHTML = '<div class="results-header"><h2>Choose the right title</h2><span>' +
+    escHtml(queryInput.value.trim()) + '</span></div><div class="tmdb-list">' + cards +
+    '</div><div class="empty">Choosing a title searches Telegram with its name and year.</div>';
+}
+
+function renderTmdbFallback(message) {
+  content.innerHTML = '<div class="warning">' + escHtml(message) +
+    '</div><div class="empty"><button class="btn btn-outline" onclick="searchTelegramRaw()">Search Telegram without TMDB</button></div>';
+}
+
+function chooseTmdb(index) {
+  const item = tmdbResults[index];
+  if (!item) return;
+  const query = [item.title, item.year].filter(Boolean).join(' ');
+  startTelegramSearch(query, {
+    id: item.id,
+    media_type: item.media_type,
+    title: item.title,
+    year: item.year
+  });
+}
+
+function searchTelegramRaw() {
+  const query = queryInput.value.trim();
+  if (query) startTelegramSearch(query, null);
+}
+
+async function startTelegramSearch(query, tmdb) {
+  clearPoll();
+  lastRenderKey = '';
+  searchComplete = false;
+  fetchQueued = false;
+  selected.clear();
+  results = [];
+  actions.style.display = 'none';
+  searchBtn.disabled = true;
+  setLoading('Searching Telegram for ' + escHtml(query) + '...');
+
+  try {
+    const res = await fetch('/api/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, tmdb })
+    });
+    const data = await res.json();
+    if (data.error) {
+      showError(data.error);
+      searchBtn.disabled = false;
+      return;
+    }
     currentSession = data.session_id;
     pollStatus();
   } catch (e) {
-    showError('Network error');
+    showError('Could not start Telegram search.');
     searchBtn.disabled = false;
   }
 }
 
 function pollStatus() {
+  if (pollTimer) return;
   const check = async () => {
     if (pollBusy || !currentSession) return;
     pollBusy = true;
@@ -134,6 +222,7 @@ function clearPoll() {
 function handleStatus(data) {
   if (data.status === 'searching' || data.status === 'pending') {
     searchComplete = false;
+    fetchQueued = Boolean(data.fetch_queued);
     results = data.results || [];
     if (results.length) {
       renderResults(data.warning, true, data.pages_loaded || 0, data.pages_total || 0);
@@ -159,7 +248,8 @@ function handleStatus(data) {
     return;
   }
   if (data.status === 'ready') {
-    clearPoll();
+    fetchQueued = Boolean(data.fetch_queued);
+    if (!fetchQueued) clearPoll();
     searchComplete = true;
     results = data.results || [];
     renderResults(data.warning, false, data.pages_loaded || 0, data.pages_total || 0);
@@ -167,6 +257,7 @@ function handleStatus(data) {
     return;
   }
   if (data.status === 'fetching') {
+    fetchQueued = false;
     const done = data.fetched || 0;
     const total = data.total || 0;
     setLoading(`Sending files to your channel... ${done}/${total}`);
@@ -175,6 +266,7 @@ function handleStatus(data) {
   }
   if (data.status === 'done') {
     clearPoll();
+    fetchQueued = false;
     setLoading('All done — your channel has been updated.');
     renderLog(data.fetch_log || []);
     actions.style.display = 'none';
@@ -221,22 +313,19 @@ function renderResults(warning = null, loading = false, pagesLoaded = 0, pagesTo
       const action = selectable
         ? '<div class="result-clean">Choose this result, then send it to your channel</div>'
         : `<div class="result-clean">This link cannot be fetched automatically${url ? ` · <a class="result-open" href="${escHtml(url)}" target="_blank" rel="noopener noreferrer">Open in Telegram ↗</a>` : ''}</div>`;
-      return `${heading}<div class="result-item${selectable ? '' : ' disabled'}" ${selectable ? `id="item_${i}" onclick="toggleSelect(${i})"` : ''}>${selectable ? '<div class="check"><span class="check-mark">✓</span></div>' : ''}<span class="result-number">${i + 1}.</span><div class="result-info"><div class="result-label">${escHtml(r.label)}</div>${action}</div></div>`;
+      return `${heading}<div class="result-item${selectable ? (selected.has(i) ? ' selected' : '') : ' disabled'}" ${selectable ? `id="item_${i}" onclick="toggleSelect(${i})"` : ''}>${selectable ? '<div class="check"><span class="check-mark">✓</span></div>' : ''}<span class="result-number">${i + 1}.</span><div class="result-info"><div class="result-label">${escHtml(r.label)}</div>${action}</div></div>`;
     }
-    return `${heading}<div class="result-item" id="item_${i}" onclick="toggleSelect(${i})"><div class="check"><span class="check-mark">✓</span></div><span class="result-number">${i + 1}.</span><div class="result-info"><div class="result-label">${escHtml(r.label)}</div><div class="result-clean">→ ${escHtml(r.clean_name)}</div></div></div>`;
+    return `${heading}<div class="result-item${selected.has(i) ? ' selected' : ''}" id="item_${i}" onclick="toggleSelect(${i})"><div class="check"><span class="check-mark">✓</span></div><span class="result-number">${i + 1}.</span><div class="result-info"><div class="result-label">${escHtml(r.label)}</div><div class="result-clean">→ ${escHtml(r.clean_name)}</div></div></div>`;
   }).join('');
 
   content.innerHTML = header + progress + (warning ? `<div class="warning">${escHtml(warning)}</div>` : '') + items;
-  if (loading || !searchComplete) {
-    actions.style.display = 'none';
-  } else {
-    actions.style.display = 'flex';
-    updateSelCount();
-  }
+  actions.style.display = 'flex';
+  fetchBtn.textContent = fetchQueued ? 'Queued…' : (loading ? 'Fetch loaded' : 'Fetch →');
+  updateSelCount();
 }
 
 function toggleSelect(i) {
-  if (!results[i] || !results[i].can_fetch) return;
+  if (fetchQueued || !results[i] || !results[i].can_fetch) return;
   if (selected.has(i)) selected.delete(i);
   else selected.add(i);
   const el = document.getElementById(`item_${i}`);
@@ -245,6 +334,7 @@ function toggleSelect(i) {
 }
 
 function selectAll() {
+  if (fetchQueued) return;
   const selectable = results.map((r, i) => r.can_fetch ? i : null).filter(i => i !== null);
   if (selected.size === selectable.length) {
     selected.clear();
@@ -258,14 +348,15 @@ function selectAll() {
 
 function updateSelCount() {
   selCount.textContent = `${selected.size} selected`;
-  fetchBtn.disabled = selected.size === 0;
+  fetchBtn.disabled = selected.size === 0 || fetchQueued;
 }
 
 async function doFetch() {
-  if (!selected.size) return;
+  if (!selected.size || fetchQueued) return;
+  fetchQueued = true;
   fetchBtn.disabled = true;
-  clearPoll();
-  setLoading(`Starting fetch for ${selected.size} file(s)...`);
+  fetchBtn.textContent = 'Queued…';
+  updateSelCount();
 
   try {
     const res = await fetch('/api/fetch', {
@@ -277,8 +368,10 @@ async function doFetch() {
     if (!res.ok) throw new Error(data.error || 'Could not start fetch');
     pollStatus();
   } catch (e) {
+    fetchQueued = false;
+    fetchBtn.textContent = searchComplete ? 'Fetch →' : 'Fetch loaded';
+    updateSelCount();
     showError(e.message || 'Network error');
-    fetchBtn.disabled = false;
   }
 }
 
