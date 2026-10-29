@@ -442,11 +442,13 @@ async def press_callback(message: Message, button: Any) -> None:
     raise RuntimeError("The Telegram button is no longer available. Search again.")
 
 
-async def wait_for_page_change(message: Message, old_signature: tuple[Any, ...], timeout: int = 30) -> Message | None:
+async def wait_for_page_change(message: Message, old_signature: tuple[Any, ...], timeout: int = 30, should_stop=None) -> Message | None:
     """Wait for a paginated bot keyboard to be edited or replaced by a new message."""
     client = current_userbot()
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
+        if should_stop and should_stop():
+            return None
         try:
             updated = await client.get_messages(CV_BOT, message.id)
             if updated and keyboard_signature(updated) != old_signature:
@@ -486,8 +488,8 @@ async def move_to_result_page(message: Message, target_page: int) -> Message:
     raise RuntimeError("The search bot's page navigation did not reach the selected result.")
 
 
-async def collect_result_pages(first_message: Message, max_pages: int = 20, on_page=None) -> tuple[list[dict[str, Any]], str | None]:
-    """Collect selectable result buttons from successive bot pages."""
+async def collect_result_pages(first_message: Message, max_pages: int = 20, on_page=None, should_stop=None) -> tuple[list[dict[str, Any]], str | None]:
+    """Collect selectable results and stop early when the user starts fetching."""
     current = first_message
     results: list[dict[str, Any]] = []
     seen_pages: set[tuple[str, Any]] = set()
@@ -495,6 +497,8 @@ async def collect_result_pages(first_message: Message, max_pages: int = 20, on_p
     fallback_page = 1
 
     for _ in range(max_pages):
+        if should_stop and should_stop():
+            break
         signature = keyboard_signature(current)
         counter = page_counter(current)
         page_number, page_total = counter if counter else (fallback_page, fallback_page)
@@ -518,6 +522,8 @@ async def collect_result_pages(first_message: Message, max_pages: int = 20, on_p
 
         if on_page:
             on_page(list(results), page_number, page_total, current.id)
+        if should_stop and should_stop():
+            break
 
         next_button = navigation_button(current, "next")
         if not next_button:
@@ -529,8 +535,12 @@ async def collect_result_pages(first_message: Message, max_pages: int = 20, on_p
             await press_callback(current, next_button)
         except Exception as exc:
             log.warning("Page navigation click reported an error: %s", exc)
-        updated = await wait_for_page_change(current, old_signature)
+        if should_stop and should_stop():
+            break
+        updated = await wait_for_page_change(current, old_signature, should_stop=should_stop)
         if not updated:
+            if should_stop and should_stop():
+                break
             warning = f"Could not read page {page_number + 1}. The bot did not return a detectable page update."
             break
         current = updated
@@ -695,7 +705,14 @@ async def search_cv_bot(session_id: str, query: str) -> None:
                             result_msg_id=message_id, pages_loaded=pages_loaded,
                             pages_total=pages_total)
 
-            results, warning = await collect_result_pages(reply, on_page=publish_page)
+            def stop_requested():
+                with state_lock:
+                    active = sessions.get(session_id)
+                    return bool(active and active.get("stop_page_scan"))
+
+            results, warning = await collect_result_pages(
+                reply, on_page=publish_page, should_stop=stop_requested
+            )
             selectable = [item for item in results if item["can_fetch"]]
             link_count = len(results) - len(selectable)
             if not results and keyboard_buttons(reply):
@@ -936,7 +953,7 @@ def api_search():
         }
     session_id = uuid.uuid4().hex
     with state_lock:
-        sessions[session_id] = {"query": query, "status": "pending", "results": [], "created": time.time(), "tmdb": tmdb}
+        sessions[session_id] = {"query": query, "status": "pending", "results": [], "created": time.time(), "tmdb": tmdb, "stop_page_scan": False}
     try:
         schedule(search_cv_bot(session_id, query))
     except Exception as exc:
@@ -975,6 +992,8 @@ def api_fetch():
         if any(not session["results"][i].get("can_fetch") for i in selected):
             return jsonify(error="One or more selected results cannot be fetched automatically."), 400
         session["fetch_queued"] = True
+        if session["status"] == "searching":
+            session["stop_page_scan"] = True
     try:
         schedule(fetch_selected(session_id, selected))
     except Exception as exc:
