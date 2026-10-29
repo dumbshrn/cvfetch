@@ -230,7 +230,10 @@ function handleStatus(data) {
     searchComplete = false;
     fetchQueued = Boolean(data.fetch_queued);
     results = data.results || [];
-    if (results.length) {
+    if (fetchQueued) {
+      const count = selected.size || data.total || 0;
+      setLoading('Stopping page scan and starting fetch for ' + count + ' selected file' + (count === 1 ? '' : 's') + '...');
+    } else if (results.length) {
       renderResults(data.warning, true, data.pages_loaded || 0, data.pages_total || 0);
     } else {
       setLoading(data.status === 'pending' ? 'Starting your search...' : 'Talking to Telegram search bot...');
@@ -255,7 +258,14 @@ function handleStatus(data) {
   }
   if (data.status === 'ready') {
     fetchQueued = Boolean(data.fetch_queued);
-    if (!fetchQueued) clearPoll();
+    if (fetchQueued) {
+      searchComplete = true;
+      results = data.results || [];
+      const count = selected.size || data.total || 0;
+      setLoading('Page scan stopped. Starting fetch for ' + count + ' selected file' + (count === 1 ? '' : 's') + '...');
+      return;
+    }
+    clearPoll();
     searchComplete = true;
     results = data.results || [];
     renderResults(data.warning, false, data.pages_loaded || 0, data.pages_total || 0);
@@ -363,6 +373,11 @@ async function doFetch() {
   fetchBtn.disabled = true;
   fetchBtn.textContent = 'Queued…';
   updateSelCount();
+  const count = selected.size;
+  const label = count === 1 ? 'file' : 'files';
+  setLoading(searchComplete
+    ? 'Starting fetch for ' + count + ' selected ' + label + '...'
+    : 'Stopping page scan and fetching ' + count + ' selected ' + label + '...');
 
   try {
     const res = await fetch('/api/fetch', {
