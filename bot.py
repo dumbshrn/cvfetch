@@ -276,12 +276,150 @@ def has_join_prompt(msg: Message) -> bool:
     return False
 
 
+PAGE_COUNTER_RE = re.compile(r"\b(\d+)\s*/\s*(\d+)\b")
+NAVIGATION_RE = re.compile(r"\b(?:next|prev(?:ious)?|first|last|page)\b|[◀▶⏭⏮]", re.I)
+
+
+def keyboard_buttons(msg: Message) -> list[Any]:
+    markup = msg.reply_markup
+    if not markup or not getattr(markup, "inline_keyboard", None):
+        return []
+    return [button for row in markup.inline_keyboard for button in row]
+
+
+def page_counter(msg: Message) -> tuple[int, int] | None:
+    for button in keyboard_buttons(msg):
+        match = PAGE_COUNTER_RE.search((button.text or "").replace(" ", ""))
+        if match:
+            return int(match.group(1)), int(match.group(2))
+    return None
+
+
+def keyboard_signature(msg: Message) -> tuple[Any, ...]:
+    return tuple(
+        ((button.text or "").strip(), button.callback_data, button.url)
+        for button in keyboard_buttons(msg)
+    )
+
+
+def result_keyboard_buttons(msg: Message) -> list[Any]:
+    return [
+        button for button in keyboard_buttons(msg)
+        if (button.callback_data or button.url)
+        and not NAVIGATION_RE.search((button.text or "").strip())
+        and not PAGE_COUNTER_RE.search((button.text or "").replace(" ", ""))
+    ]
+
+
+def navigation_button(msg: Message, direction: str) -> Any | None:
+    words = ("next", "▶", "⏭") if direction == "next" else ("prev", "back", "◀", "⏮")
+    for button in keyboard_buttons(msg):
+        label = (button.text or "").strip().lower()
+        if button.callback_data and any(word in label for word in words):
+            return button
+    return None
+
+
+async def wait_for_page_change(message: Message, old_signature: tuple[Any, ...], timeout: int = 12) -> Message | None:
+    """Wait for a paginated bot keyboard to be edited or replaced by a new message."""
+    client = current_userbot()
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            updated = await client.get_messages(CV_BOT, message.id)
+            if updated and keyboard_signature(updated) != old_signature:
+                return updated
+        except Exception:
+            pass
+        async for candidate in client.get_chat_history(CV_BOT, limit=8):
+            if (candidate.id > message.id and candidate.from_user and candidate.from_user.is_bot
+                    and keyboard_buttons(candidate) and keyboard_signature(candidate) != old_signature):
+                return candidate
+        await asyncio.sleep(0.6)
+    return None
+
+
+async def move_to_result_page(message: Message, target_page: int) -> Message:
+    """Navigate an edited inline keyboard to the page containing a selected item."""
+    current = message
+    for _ in range(20):
+        counter = page_counter(current)
+        if not counter or counter[0] == target_page:
+            return current
+        direction = "next" if counter[0] < target_page else "prev"
+        button = navigation_button(current, direction)
+        if not button:
+            raise RuntimeError(f"Could not navigate to result page {target_page}.")
+        old_signature = keyboard_signature(current)
+        await current.click(button.text)
+        updated = await wait_for_page_change(current, old_signature)
+        if not updated:
+            raise TimeoutError("The search bot did not load the next results page.")
+        current = updated
+    raise RuntimeError("The search bot's page navigation did not reach the selected result.")
+
+
+async def collect_result_pages(first_message: Message, max_pages: int = 20) -> tuple[list[dict[str, Any]], str | None]:
+    """Collect selectable result buttons from successive bot pages."""
+    current = first_message
+    results: list[dict[str, Any]] = []
+    seen: set[tuple[Any, ...]] = set()
+    warning = None
+    fallback_page = 1
+
+    for _ in range(max_pages):
+        signature = keyboard_signature(current)
+        if not signature or signature in seen:
+            break
+        seen.add(signature)
+        counter = page_counter(current)
+        page_number, page_total = counter if counter else (fallback_page, fallback_page)
+        for button in result_keyboard_buttons(current):
+            label = (button.text or "").strip()
+            results.append({
+                "label": label,
+                "callback_data": button.callback_data,
+                "url": button.url,
+                "button_type": "callback" if button.callback_data else "url",
+                "msg_id": current.id,
+                "page": page_number,
+                "page_total": page_total,
+                "clean_name": clean_filename(label),
+            })
+
+        next_button = navigation_button(current, "next")
+        if not next_button:
+            break
+        if counter and counter[0] >= counter[1]:
+            break
+        old_signature = signature
+        try:
+            await current.click(next_button.text)
+            updated = await wait_for_page_change(current, old_signature)
+        except Exception as exc:
+            log.warning("Could not advance search results to the next page: %s", exc)
+            updated = None
+        if not updated:
+            warning = "Could not load every results page. Showing the pages the bot returned."
+            break
+        current = updated
+        fallback_page += 1
+    else:
+        warning = f"Stopped after {max_pages} pages to keep the result list manageable."
+
+    return results, warning
+
+
 async def click_result(item: dict[str, Any]) -> tuple[Message | None, int]:
     """Select the result by its visible button label, then handle an optional join gate."""
     client = current_userbot()
     result_msg = await client.get_messages(CV_BOT, item["msg_id"])
     if not result_msg or not result_msg.reply_markup:
         raise RuntimeError("The search result message is no longer available. Search again.")
+
+    if item.get("button_type") == "url" or not item.get("callback_data"):
+        raise RuntimeError("This result opens a link and cannot be fetched automatically. Open it in Telegram instead.")
+    result_msg = await move_to_result_page(result_msg, int(item.get("page", 1)))
 
     # Pyrogram Message.click takes a button index/label, not callback_data.
     await result_msg.click(item["label"])
@@ -334,27 +472,31 @@ async def search_cv_bot(session_id: str, query: str) -> None:
         async with operation_lock:
             client = current_userbot()
             sent = await client.send_message(CV_BOT, query)
-            reply = await wait_for_bot_messages(sent.id, REQUEST_TIMEOUT, lambda m: bool(m.reply_markup) or bool(m.text))
+            reply = await wait_for_bot_messages(
+                sent.id, REQUEST_TIMEOUT,
+                lambda m: bool(keyboard_buttons(m)) or bool(m.text and re.search(r"no results?|not found", m.text, re.I)),
+            )
             if reply and await maybe_join_required_chat(reply):
                 set_session(session_id, status="joining")
                 await asyncio.sleep(2)
                 retry = await client.send_message(CV_BOT, query)
-                reply = await wait_for_bot_messages(retry.id, REQUEST_TIMEOUT, lambda m: bool(m.reply_markup) or bool(m.text))
+                reply = await wait_for_bot_messages(
+                    retry.id, REQUEST_TIMEOUT,
+                    lambda m: bool(keyboard_buttons(m)) or bool(m.text and re.search(r"no results?|not found", m.text, re.I)),
+                )
             if not reply:
                 raise TimeoutError("No response from the search bot. Try again or check the bot in Telegram.")
-            buttons = []
-            markup = reply.reply_markup
-            if markup and getattr(markup, "inline_keyboard", None):
-                for row in markup.inline_keyboard:
-                    for btn in row:
-                        label = (btn.text or "").strip()
-                        if not label or not btn.callback_data or re.search(r"\b(?:next|prev|page|\d+\s*/\s*\d+)\b|[◀▶⏭⏮]", label, re.I):
-                            continue
-                        buttons.append({"label": label, "callback_data": btn.callback_data,
-                                        "msg_id": reply.id, "clean_name": clean_filename(label)})
-            set_session(session_id, results=buttons, result_msg_id=reply.id,
-                        status="ready" if buttons else "no_results",
-                        error=None if buttons else (reply.text or "No selectable results found."))
+            results, warning = await collect_result_pages(reply)
+            selectable = [item for item in results if item["button_type"] == "callback"]
+            link_count = len(results) - len(selectable)
+            if not results and keyboard_buttons(reply):
+                warning = "The bot replied with buttons CVFetch cannot read. Please check its button type."
+            elif not selectable and link_count:
+                warning = "The bot returned links rather than callback buttons. Open a result in Telegram; automatic fetching is not supported for these links."
+            set_session(session_id, results=results, result_msg_id=reply.id,
+                        status="ready" if results else "no_results",
+                        warning=warning,
+                        error=None if results else (reply.text or "No selectable results found."))
     except Exception as exc:
         log.exception("Search failed for session %s", session_id)
         set_session(session_id, status="error", error=str(exc))
