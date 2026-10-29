@@ -305,12 +305,26 @@ async def maybe_join_required_chat(msg: Message) -> bool:
     return joined
 
 
-async def wait_for_bot_messages(after_id: int, timeout: int, predicate, chat_id: str = CV_BOT):
+async def wait_for_bot_messages(
+    after_id: int,
+    timeout: int,
+    predicate,
+    chat_id: str = CV_BOT,
+    same_id_signature: tuple[Any, ...] | None = None,
+):
+    """Wait for a new bot reply or an edited-in-place callback message."""
     client = current_userbot()
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         async for msg in client.get_chat_history(chat_id, limit=12):
-            if msg.id > after_id and msg.from_user and msg.from_user.is_bot and predicate(msg):
+            is_new_reply = msg.id > after_id
+            is_edited_reply = (
+                same_id_signature is not None
+                and msg.id == after_id
+                and keyboard_signature(msg) != same_id_signature
+            )
+            if ((is_new_reply or is_edited_reply)
+                    and msg.from_user and msg.from_user.is_bot and predicate(msg)):
                 return msg
         await asyncio.sleep(1.5)
     return None
@@ -563,6 +577,7 @@ async def collect_result_pages(first_message: Message, max_pages: int = 20, on_p
 async def click_result(item: dict[str, Any]) -> tuple[Message | None, int]:
     """Select a callback or start-link result, then handle an optional join gate."""
     client = current_userbot()
+    same_id_signature = None
     result_msg = await client.get_messages(CV_BOT, item["msg_id"])
     if not result_msg or not result_msg.reply_markup:
         raise RuntimeError("The search result message is no longer available. Search again.")
@@ -588,11 +603,13 @@ async def click_result(item: dict[str, Any]) -> tuple[Message | None, int]:
         )
         if not button:
             raise RuntimeError("That result button changed. Search again and select it once more.")
+        same_id_signature = keyboard_signature(result_msg)
         await press_callback(result_msg, button)
     response = await wait_for_bot_messages(
         latest_id, FILE_TIMEOUT,
         lambda m: has_media(m) or has_join_prompt(m) or is_unsupported_response(m),
         chat_id=target_chat,
+        same_id_signature=same_id_signature,
     )
     if not response:
         return None, latest_id
@@ -614,6 +631,7 @@ async def click_result(item: dict[str, Any]) -> tuple[Message | None, int]:
             if button.callback_data and any(word in label.lower() for word in ("joined", "check", "continue", "verify")):
                 confirm_buttons.append(label)
     for label in confirm_buttons:
+        confirm_signature = None
         try:
             confirm_msg = await client.get_messages(target_chat, response.id)
             confirm_button = next(
@@ -622,6 +640,7 @@ async def click_result(item: dict[str, Any]) -> tuple[Message | None, int]:
                 None,
             )
             if confirm_button:
+                confirm_signature = keyboard_signature(confirm_msg)
                 await press_callback(confirm_msg, confirm_button)
         except Exception as exc:
             log.warning("Join confirmation button failed: %s", exc)
@@ -629,6 +648,7 @@ async def click_result(item: dict[str, Any]) -> tuple[Message | None, int]:
             latest_id, FILE_TIMEOUT,
             lambda m: has_media(m) or has_join_prompt(m) or is_unsupported_response(m),
             chat_id=target_chat,
+            same_id_signature=confirm_signature,
         )
         if followup:
             latest_id = max(latest_id, followup.id)
@@ -651,11 +671,13 @@ async def click_result(item: dict[str, Any]) -> tuple[Message | None, int]:
         )
         if not button:
             raise RuntimeError("The original result button is no longer available. Search again.")
+        same_id_signature = keyboard_signature(result_msg)
         await press_callback(result_msg, button)
     file_msg = await wait_for_bot_messages(
         latest_id, FILE_TIMEOUT,
         lambda m: has_media(m) or is_unsupported_response(m),
         chat_id=target_chat,
+        same_id_signature=same_id_signature,
     )
     if file_msg and is_unsupported_response(file_msg) and not has_media(file_msg):
         raise UnsupportedResultError("Telegram says this file is not supported. Choose another result.")
