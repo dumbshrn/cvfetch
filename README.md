@@ -44,7 +44,7 @@ Render's free web service sleeps after inactivity and its local filesystem is te
 - The web password protects the search UI and login endpoints.
 - Browser Telegram login creates a Pyrogram user session. MongoDB stores that session encrypted with `SESSION_ENCRYPTION_KEY`.
 - Searches and file-button clicks are sent to `CV_BOT` (default `CVFilesearch_Bot`). CVFetch collects callback-button results across pages and groups them by page in the web UI. Telegram bot start links can also be selected: CVFetch sends their `/start` payload through the connected Telegram account and waits for the linked bot's file response. Other Telegram links remain openable but cannot be fetched automatically. If the bot reply includes a recognizable channel join button, CVFetch tries to join it, then retries/continues the file selection flow. Some private invites or extra membership checks may require manual action in Telegram.
-- Returned media is copied to `AUTH_CHANNEL` with a cleaned caption. Telegram copy preserves the source media attachment and may not change its underlying filename.
+- Returned media is copied to `AUTH_CHANNEL` with a cleaned caption. After the fetched batch, CVFetch sends a `#cvfetch_refresh` marker so Telegram-Stremio can start its normal incremental scan; Telegram-Stremio removes the marker when its bot has permission. Telegram copy preserves the source media attachment and may not change its underlying filename.
 
 ## Configuration
 
