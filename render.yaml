@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: cvfetch
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    healthCheckPath: /healthz
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: API_ID
+        sync: false
+      - key: API_HASH
+        sync: false
+      - key: AUTH_CHANNEL
+        sync: false
+      - key: SESSION_NAME
+        value: cvfetch_user
+      - key: WEB_PASSWORD
+        sync: false
+      - key: FLASK_SECRET_KEY
+        sync: false
+      - key: SESSION_STORE_URI
+        sync: false
+      - key: SESSION_STORE_DB
+        value: cvfetch
+      - key: SESSION_ENCRYPTION_KEY
+        sync: false
+
