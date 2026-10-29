@@ -267,8 +267,10 @@ function handleStatus(data) {
     }
     clearPoll();
     searchComplete = true;
+    if (data.fetch_interrupted) selected.clear();
     results = data.results || [];
     renderResults(data.warning, false, data.pages_loaded || 0, data.pages_total || 0);
+    if (data.fetch_interrupted) renderLog(data.fetch_log || []);
     searchBtn.disabled = false;
     return;
   }
