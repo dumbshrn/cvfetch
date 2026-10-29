@@ -323,8 +323,17 @@ async def wait_for_bot_messages(
                 and msg.id == after_id
                 and keyboard_signature(msg) != same_id_signature
             )
-            if ((is_new_reply or is_edited_reply)
-                    and msg.from_user and msg.from_user.is_bot and predicate(msg)):
+            if not (is_new_reply or is_edited_reply) or not predicate(msg):
+                continue
+            is_bot_reply = bool(msg.from_user and msg.from_user.is_bot)
+            is_unsupported_reply_to_selection = (
+                is_unsupported_response(msg)
+                and msg.reply_to_message is not None
+                and msg.reply_to_message.id == after_id
+            )
+            if is_bot_reply or is_unsupported_reply_to_selection:
+                if is_unsupported_reply_to_selection and not is_bot_reply:
+                    log.info("Detected unsupported reply to the selected Telegram result")
                 return msg
         await asyncio.sleep(1.5)
     return None
