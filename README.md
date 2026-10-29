@@ -14,6 +14,7 @@ Only use it with content you are authorized to access and share. Keep this repos
    | Variable | Where to get it |
    | --- | --- |
    | `API_ID` and `API_HASH` | Create an app at [my.telegram.org](https://my.telegram.org) |
+   | `TMDB_API_KEY` | Optional TMDB API key from [TMDB account API settings](https://www.themoviedb.org/settings/api); enables title selection before Telegram search |
    | `AUTH_CHANNEL` | Your destination channel ID or public username; the account must be able to post there |
    | `WEB_PASSWORD` | A long, unique password for the CVFetch website |
    | `FLASK_SECRET_KEY` | A fresh random secret used to protect website sign-in cookies |
@@ -21,6 +22,8 @@ Only use it with content you are authorized to access and share. Keep this repos
    | `SESSION_ENCRYPTION_KEY` | A Fernet key generated as described below |
 
    Render already sets `PORT`; `render.yaml` includes a default for local/static configuration. Keep the remaining values supplied by the Blueprint.
+
+   Add `TMDB_API_KEY` in the Render Environment page to enable TMDB title picking. If it is unset, the website offers a direct Telegram search fallback.
 5. Generate `SESSION_ENCRYPTION_KEY` locally in PowerShell (Python is not needed):
 
    ```powershell
