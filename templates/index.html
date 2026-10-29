@@ -140,6 +140,10 @@
   .result-info { flex: 1; min-width: 0; }
   .result-label { font-size: 14px; font-weight: 500; line-height: 1.4; word-break: break-word; }
   .result-clean { font-size: 12px; color: var(--muted); margin-top: 4px; word-break: break-word; }
+  .result-number { color: var(--muted); font-size: 12px; min-width: 32px; }
+  .page-heading { margin: 22px 0 10px; font-size: 14px; color: #b9c0cb; }
+  .warning { background: #352b16; border: 1px solid #705a24; border-radius: 10px; color: #f4d88a; padding: 12px 14px; margin: 10px 0 16px; font-size: 13px; }
+  .result-open { color: #8ab4ff; display: inline-block; margin-top: 7px; font-size: 13px; }
 
   .actions {
     position: sticky;
@@ -288,14 +292,14 @@ function handleStatus(data) {
   }
   if (data.status === 'no_results') {
     clearPoll();
-    content.innerHTML = '<div class="empty">No results found. Try a different name.</div>';
+    showError(data.error || 'No results found. Try a different name.');
     searchBtn.disabled = false;
     return;
   }
   if (data.status === 'ready') {
     clearPoll();
     results = data.results;
-    renderResults();
+    renderResults(data.warning);
     searchBtn.disabled = false;
     return;
   }
@@ -316,35 +320,39 @@ function handleStatus(data) {
   }
 }
 
-function renderResults() {
+function renderResults(warning = null) {
   if (!results.length) {
     content.innerHTML = '<div class="empty">No results found</div>';
     return;
   }
 
+  const pageTotal = Math.max(...results.map(r => Number(r.page_total || r.page || 1)));
   const header = `
     <div class="results-header">
-      <h2>${results.length} result${results.length > 1 ? 's' : ''}</h2>
+      <h2>${results.length} options · ${pageTotal} page${pageTotal === 1 ? '' : 's'}</h2>
       <span>${queryInput.value.trim()}</span>
     </div>
   `;
 
-  const items = results.map((r, i) => `
-    <div class="result-item" id="item_${i}" onclick="toggleSelect(${i})">
-      <div class="check"><span class="check-mark">✓</span></div>
-      <div class="result-info">
-        <div class="result-label">${escHtml(r.label)}</div>
-        <div class="result-clean">→ ${escHtml(r.clean_name)}</div>
-      </div>
-    </div>
-  `).join('');
+  let lastPage = null;
+  const items = results.map((r, i) => {
+    const page = Number(r.page || 1);
+    const heading = page !== lastPage ? `<h3 class="page-heading">Page ${page}${r.page_total ? ` of ${Number(r.page_total)}` : ''}</h3>` : '';
+    lastPage = page;
+    const url = safeTelegramUrl(r.url);
+    if (r.button_type === 'url') {
+      return `${heading}<div class="result-item"><span class="result-number">${i + 1}.</span><div class="result-info"><div class="result-label">${escHtml(r.label)}</div>${url ? `<a class="result-open" href="${escHtml(url)}" target="_blank" rel="noopener noreferrer">Open Telegram link ↗</a>` : '<div class="result-clean">Link button · open it in Telegram</div>'}</div></div>`;
+    }
+    return `${heading}<div class="result-item" id="item_${i}" onclick="toggleSelect(${i})"><div class="check"><span class="check-mark">✓</span></div><span class="result-number">${i + 1}.</span><div class="result-info"><div class="result-label">${escHtml(r.label)}</div><div class="result-clean">→ ${escHtml(r.clean_name)}</div></div></div>`;
+  }).join('');
 
-  content.innerHTML = header + items;
+  content.innerHTML = header + (warning ? `<div class="warning">${escHtml(warning)}</div>` : '') + items;
   actions.style.display = 'flex';
   updateSelCount();
 }
 
 function toggleSelect(i) {
+  if (!results[i] || results[i].button_type === 'url') return;
   if (selected.has(i)) selected.delete(i);
   else selected.add(i);
   const el = document.getElementById(`item_${i}`);
@@ -353,12 +361,13 @@ function toggleSelect(i) {
 }
 
 function selectAll() {
-  if (selected.size === results.length) {
+  const selectable = results.map((r, i) => r.button_type === 'url' ? null : i).filter(i => i !== null);
+  if (selected.size === selectable.length) {
     selected.clear();
     document.querySelectorAll('.result-item').forEach(el => el.classList.remove('selected'));
   } else {
-    results.forEach((_, i) => selected.add(i));
-    document.querySelectorAll('.result-item').forEach(el => el.classList.add('selected'));
+    selectable.forEach(i => selected.add(i));
+    selectable.forEach(i => document.getElementById(`item_${i}`)?.classList.add('selected'));
   }
   updateSelCount();
 }
@@ -404,6 +413,13 @@ function renderLog(lines) {
 
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function safeTelegramUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && ['t.me','www.t.me','telegram.me','www.telegram.me'].includes(url.hostname.toLowerCase()) ? url.href : null;
+  } catch (e) { return null; }
 }
 </script>
 </body>
