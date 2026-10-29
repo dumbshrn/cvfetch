@@ -326,9 +326,9 @@ async def wait_for_bot_messages(
             if not (is_new_reply or is_edited_reply) or not predicate(msg):
                 continue
             is_bot_reply = bool(msg.from_user and msg.from_user.is_bot)
-            is_unsupported_response = is_unsupported_response(msg)
-            if is_bot_reply or (is_new_reply and is_unsupported_response):
-                if is_new_reply and is_unsupported_response and not is_bot_reply:
+            unsupported = is_unsupported_response(msg)
+            if is_bot_reply or (is_new_reply and unsupported):
+                if is_new_reply and unsupported and not is_bot_reply:
                     log.info("Detected unsupported response in the selected result chat")
                 return msg
         await asyncio.sleep(1.5)
