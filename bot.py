@@ -326,14 +326,10 @@ async def wait_for_bot_messages(
             if not (is_new_reply or is_edited_reply) or not predicate(msg):
                 continue
             is_bot_reply = bool(msg.from_user and msg.from_user.is_bot)
-            is_unsupported_reply_to_selection = (
-                is_unsupported_response(msg)
-                and msg.reply_to_message is not None
-                and msg.reply_to_message.id == after_id
-            )
-            if is_bot_reply or is_unsupported_reply_to_selection:
-                if is_unsupported_reply_to_selection and not is_bot_reply:
-                    log.info("Detected unsupported reply to the selected Telegram result")
+            is_unsupported_response = is_unsupported_response(msg)
+            if is_bot_reply or (is_new_reply and is_unsupported_response):
+                if is_new_reply and is_unsupported_response and not is_bot_reply:
+                    log.info("Detected unsupported response in the selected result chat")
                 return msg
         await asyncio.sleep(1.5)
     return None
@@ -976,7 +972,11 @@ def api_auth_logout():
 @web.get("/healthz")
 def healthz():
     """Cheap endpoint for Render health checks and an external uptime monitor."""
-    return jsonify(ok=True, telegram_connected=bool(userbot and userbot.is_connected)), 200
+    return jsonify(
+        ok=True,
+        telegram_connected=bool(userbot and userbot.is_connected),
+        revision=os.getenv("RENDER_GIT_COMMIT", "local"),
+    ), 200
 
 
 @web.post("/api/tmdb/search")
