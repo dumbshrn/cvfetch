@@ -316,8 +316,17 @@ async def wait_for_bot_messages(after_id: int, timeout: int, predicate, chat_id:
     return None
 
 
+class UnsupportedResultError(RuntimeError):
+    """The search bot rejected this particular file selection."""
+
+
 def has_media(msg: Message) -> bool:
     return bool(msg.document or msg.video or msg.audio or msg.animation or msg.photo)
+
+
+def is_unsupported_response(msg: Message) -> bool:
+    text = msg.text or msg.caption or ""
+    return bool(re.search(r"\b(?:not\s+supported|unsupported)\b", text, re.I))
 
 
 def has_join_prompt(msg: Message) -> bool:
@@ -581,11 +590,15 @@ async def click_result(item: dict[str, Any]) -> tuple[Message | None, int]:
             raise RuntimeError("That result button changed. Search again and select it once more.")
         await press_callback(result_msg, button)
     response = await wait_for_bot_messages(
-        latest_id, FILE_TIMEOUT, lambda m: has_media(m) or has_join_prompt(m), chat_id=target_chat
+        latest_id, FILE_TIMEOUT,
+        lambda m: has_media(m) or has_join_prompt(m) or is_unsupported_response(m),
+        chat_id=target_chat,
     )
     if not response:
         return None, latest_id
     latest_id = max(latest_id, response.id)
+    if is_unsupported_response(response) and not has_media(response):
+        raise UnsupportedResultError("Telegram says this file is not supported. Choose another result.")
     if has_media(response):
         return response, latest_id
 
@@ -613,10 +626,14 @@ async def click_result(item: dict[str, Any]) -> tuple[Message | None, int]:
         except Exception as exc:
             log.warning("Join confirmation button failed: %s", exc)
         followup = await wait_for_bot_messages(
-            latest_id, FILE_TIMEOUT, lambda m: has_media(m) or has_join_prompt(m), chat_id=target_chat
+            latest_id, FILE_TIMEOUT,
+            lambda m: has_media(m) or has_join_prompt(m) or is_unsupported_response(m),
+            chat_id=target_chat,
         )
         if followup:
             latest_id = max(latest_id, followup.id)
+            if is_unsupported_response(followup) and not has_media(followup):
+                raise UnsupportedResultError("Telegram says this file is not supported. Choose another result.")
             if has_media(followup):
                 return followup, latest_id
             response = followup
@@ -635,7 +652,13 @@ async def click_result(item: dict[str, Any]) -> tuple[Message | None, int]:
         if not button:
             raise RuntimeError("The original result button is no longer available. Search again.")
         await press_callback(result_msg, button)
-    file_msg = await wait_for_bot_messages(latest_id, FILE_TIMEOUT, has_media, chat_id=target_chat)
+    file_msg = await wait_for_bot_messages(
+        latest_id, FILE_TIMEOUT,
+        lambda m: has_media(m) or is_unsupported_response(m),
+        chat_id=target_chat,
+    )
+    if file_msg and is_unsupported_response(file_msg) and not has_media(file_msg):
+        raise UnsupportedResultError("Telegram says this file is not supported. Choose another result.")
     return file_msg, max(latest_id, file_msg.id if file_msg else latest_id)
 
 
@@ -754,6 +777,7 @@ async def search_cv_bot(session_id: str, query: str) -> None:
 async def fetch_selected(session_id: str, indices: list[int]) -> None:
     trigger_chat_id = None
     client = None
+    return_to_selection = False
     try:
         async with operation_lock:
             with state_lock:
@@ -763,7 +787,8 @@ async def fetch_selected(session_id: str, indices: list[int]) -> None:
                 results = session["results"]
                 tmdb = session.get("tmdb")
             set_session(session_id, status="fetching", fetch_queued=False,
-                        fetched=0, total=len(indices), fetch_log=[])
+                        fetched=0, total=len(indices), fetch_log=[],
+                        fetch_interrupted=False, failed_index=None, fetched_indices=[], warning=None)
             client = current_userbot()
             for idx in indices:
                 if idx < 0 or idx >= len(results):
@@ -776,8 +801,16 @@ async def fetch_selected(session_id: str, indices: list[int]) -> None:
                     trigger_chat_id = await copy_media_to_destination(client, file_msg, caption_from_result_label(item.get("label") or item["clean_name"], tmdb))
                     with state_lock:
                         session["fetched"] += 1
+                        session["fetched_indices"].append(idx)
                         session["fetch_log"].append({"ok": True, "text": item["clean_name"]})
                     await asyncio.sleep(1)
+                except UnsupportedResultError as exc:
+                    log.info("Stopping batch after unsupported result: %s", item["label"])
+                    with state_lock:
+                        session["fetch_log"].append({"ok": False, "text": f"{item['label']} — {exc}"})
+                        session["failed_index"] = idx
+                    return_to_selection = True
+                    break
                 except FloodWait as exc:
                     await asyncio.sleep(exc.value + 1)
                     with state_lock:
@@ -792,7 +825,12 @@ async def fetch_selected(session_id: str, indices: list[int]) -> None:
                 await client.send_message(trigger_chat_id, REFRESH_TRIGGER)
             except Exception:
                 log.warning("Media was copied, but Telegram-Stremio refresh trigger could not be sent", exc_info=True)
-        set_session(session_id, status="done", fetch_queued=False)
+        if return_to_selection:
+            set_session(session_id, status="ready", fetch_queued=False,
+                        fetch_interrupted=True,
+                        warning="Telegram said that result is not supported. Choose another result below.")
+        else:
+            set_session(session_id, status="done", fetch_queued=False)
 
 
 def schedule(coro) -> None:
