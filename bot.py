@@ -311,13 +311,18 @@ async def wait_for_bot_messages(
     predicate,
     chat_id: str = CV_BOT,
     same_id_signature: tuple[Any, ...] | None = None,
+    on_new_message=None,
 ):
-    """Wait for a new bot reply or an edited-in-place callback message."""
+    """Wait for a new bot reply, optionally recording unrecognized replies."""
     client = current_userbot()
     deadline = time.monotonic() + timeout
+    observed_ids: set[int] = set()
     while time.monotonic() < deadline:
         async for msg in client.get_chat_history(chat_id, limit=12):
             is_new_reply = msg.id > after_id
+            if is_new_reply and on_new_message and msg.id not in observed_ids:
+                observed_ids.add(msg.id)
+                on_new_message(msg)
             is_edited_reply = (
                 same_id_signature is not None
                 and msg.id == after_id
@@ -345,7 +350,12 @@ def has_media(msg: Message) -> bool:
 
 def is_unsupported_response(msg: Message) -> bool:
     text = msg.text or msg.caption or ""
-    return bool(re.search(r"\b(?:not\s+supported|unsupported)\b", text, re.I))
+    text = re.sub(r"[\u200b-\u200f\u2060\ufeff]", "", text)
+    words = re.findall(r"[a-z]+", text.casefold())
+    return "unsupported" in words or any(
+        words[index:index + 2] == ["not", "supported"]
+        for index in range(len(words) - 1)
+    )
 
 
 def has_join_prompt(msg: Message) -> bool:
@@ -582,6 +592,15 @@ async def collect_result_pages(first_message: Message, max_pages: int = 20, on_p
 async def click_result(item: dict[str, Any]) -> tuple[Message | None, int]:
     """Select a callback or start-link result, then handle an optional join gate."""
     client = current_userbot()
+    observed_replies: list[str] = []
+
+    def remember_reply(msg: Message) -> None:
+        sender = "bot" if msg.from_user and msg.from_user.is_bot else "other"
+        reply_to = getattr(msg.reply_to_message, "id", None)
+        content = (msg.text or msg.caption or ("[media]" if has_media(msg) else "[no text]"))
+        content = re.sub(r"\s+", " ", content).strip()[:160]
+        observed_replies.append(f"{sender}, reply_to={reply_to}: {content}")
+
     same_id_signature = None
     result_msg = await client.get_messages(CV_BOT, item["msg_id"])
     if not result_msg or not result_msg.reply_markup:
@@ -615,8 +634,12 @@ async def click_result(item: dict[str, Any]) -> tuple[Message | None, int]:
         lambda m: has_media(m) or has_join_prompt(m) or is_unsupported_response(m),
         chat_id=target_chat,
         same_id_signature=same_id_signature,
+        on_new_message=remember_reply,
     )
     if not response:
+        detail = " | ".join(observed_replies[-5:])
+        if detail:
+            raise TimeoutError(f"No file response was recognized. Telegram replied: {detail}")
         return None, latest_id
     latest_id = max(latest_id, response.id)
     if is_unsupported_response(response) and not has_media(response):
@@ -654,6 +677,7 @@ async def click_result(item: dict[str, Any]) -> tuple[Message | None, int]:
             lambda m: has_media(m) or has_join_prompt(m) or is_unsupported_response(m),
             chat_id=target_chat,
             same_id_signature=confirm_signature,
+            on_new_message=remember_reply,
         )
         if followup:
             latest_id = max(latest_id, followup.id)
@@ -683,6 +707,7 @@ async def click_result(item: dict[str, Any]) -> tuple[Message | None, int]:
         lambda m: has_media(m) or is_unsupported_response(m),
         chat_id=target_chat,
         same_id_signature=same_id_signature,
+        on_new_message=remember_reply,
     )
     if file_msg and is_unsupported_response(file_msg) and not has_media(file_msg):
         raise UnsupportedResultError("Telegram says this file is not supported. Choose another result.")
