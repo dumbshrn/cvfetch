@@ -342,7 +342,10 @@ function renderResults(warning = null) {
     const url = safeTelegramUrl(r.url);
     if (r.button_type === 'url') {
       const selectable = Boolean(r.can_fetch);
-      return `${heading}<div class="result-item${selectable ? '' : ' disabled'}" ${selectable ? `id="item_${i}" onclick="toggleSelect(${i})"` : ''}>${selectable ? '<div class="check"><span class="check-mark">✓</span></div>' : ''}<span class="result-number">${i + 1}.</span><div class="result-info"><div class="result-label">${escHtml(r.label)}</div>${selectable ? '<div class="result-clean">Select to ask the linked Telegram bot for the file</div>' : '<div class="result-clean">This Telegram link cannot be fetched by CVFetch</div>'}${url ? `<a class="result-open" href="${escHtml(url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Open Telegram link ↗</a>` : ''}</div></div>`;
+      const action = selectable
+        ? '<div class="result-clean">Select this result, then press Fetch</div>'
+        : `<div class="result-clean">This link cannot be fetched automatically${url ? ` · <a class="result-open" href="${escHtml(url)}" target="_blank" rel="noopener noreferrer">Open in Telegram ↗</a>` : ''}</div>`;
+      return `${heading}<div class="result-item${selectable ? '' : ' disabled'}" ${selectable ? `id="item_${i}" onclick="toggleSelect(${i})"` : ''}>${selectable ? '<div class="check"><span class="check-mark">✓</span></div>' : ''}<span class="result-number">${i + 1}.</span><div class="result-info"><div class="result-label">${escHtml(r.label)}</div>${action}</div></div>`;
     }
     return `${heading}<div class="result-item" id="item_${i}" onclick="toggleSelect(${i})"><div class="check"><span class="check-mark">✓</span></div><span class="result-number">${i + 1}.</span><div class="result-info"><div class="result-label">${escHtml(r.label)}</div><div class="result-clean">→ ${escHtml(r.clean_name)}</div></div></div>`;
   }).join('');
