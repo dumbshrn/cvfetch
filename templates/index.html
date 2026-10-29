@@ -6,209 +6,186 @@
 <title>CVFetch</title>
 <style>
   :root {
-    --bg: #0f0f0f;
-    --card: #1a1a1a;
-    --border: #2a2a2a;
-    --accent: #e50914;
-    --text: #e5e5e5;
-    --muted: #888;
-    --green: #22c55e;
-    --red: #ef4444;
-    --radius: 12px;
+    color-scheme: dark;
+    --bg: #10131b;
+    --surface: #191e29;
+    --surface-raised: #202735;
+    --border: rgba(213, 224, 255, .11);
+    --accent: #ffb45f;
+    --accent-strong: #ff8d4d;
+    --cyan: #83d8e6;
+    --text: #f4f5f8;
+    --muted: #a4adbd;
+    --green: #8ce0ac;
+    --red: #ff8585;
+    --radius: 22px;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    background: var(--bg);
+    background:
+      radial-gradient(ellipse at 12% 0%, rgba(90, 100, 196, .18), transparent 35rem),
+      radial-gradient(ellipse at 100% 24%, rgba(255, 146, 78, .10), transparent 32rem),
+      var(--bg);
     color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     min-height: 100vh;
     padding: env(safe-area-inset-top, 0) env(safe-area-inset-right, 0) env(safe-area-inset-bottom, 0) env(safe-area-inset-left, 0);
   }
+  button, input { font: inherit; }
   .header {
-    background: #141414;
+    position: sticky; top: 0; z-index: 10;
+    display: flex; align-items: center; gap: 14px;
+    padding: 15px max(22px, calc((100vw - 1040px) / 2));
+    background: rgba(16, 19, 27, .82);
+    backdrop-filter: blur(18px);
     border-bottom: 1px solid var(--border);
-    padding: 16px 20px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    position: sticky;
-    top: 0;
-    z-index: 10;
   }
-  .header h1 { font-size: 20px; font-weight: 700; color: var(--accent); }
-  .header span { font-size: 13px; color: var(--muted); }
-  .header-links { margin-left: auto; display: flex; gap: 12px; align-items: center; font-size: 13px; }
-  .header-links a { color: #ddd; text-decoration: none; }
-  .header-links button { background: transparent; border: 0; color: #ddd; font: inherit; cursor: pointer; }
-  .container { max-width: 640px; margin: 0 auto; padding: 20px 16px; }
-
-  .search-box {
-    display: flex;
-    gap: 10px;
-    margin-bottom: 24px;
+  .brand-mark {
+    display: grid; place-items: center; width: 42px; height: 42px; border-radius: 15px;
+    color: #312114; font-size: 21px; font-weight: 900;
+    background: linear-gradient(145deg, #ffe1aa, var(--accent-strong));
+    box-shadow: 0 8px 28px rgba(255, 157, 74, .22);
   }
+  .header h1 { font-size: 19px; font-weight: 780; letter-spacing: -.035em; }
+  .header span { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+  .header-links { margin-left: auto; display: flex; gap: 18px; align-items: center; font-size: 13px; }
+  .header-links a, .header-links button { color: var(--text); text-decoration: none; opacity: .84; }
+  .header-links a:hover, .header-links button:hover { opacity: 1; color: var(--accent); }
+  .header-links button { background: transparent; border: 0; cursor: pointer; }
+  .container { width: min(100% - 36px, 920px); margin: 0 auto; padding: 48px 0 130px; }
+  .intro { margin: 0 auto 24px; max-width: 790px; animation: rise-in .55s cubic-bezier(.2,.8,.2,1) both; }
+  .eyebrow { color: var(--cyan); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .16em; }
+  .intro h2 { margin-top: 10px; font-size: clamp(30px, 5vw, 48px); line-height: 1.06; letter-spacing: -.055em; }
+  .intro p { max-width: 610px; margin-top: 12px; color: var(--muted); font-size: 15px; line-height: 1.65; }
+  .flow { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 21px; }
+  .flow span { padding: 8px 12px; border: 1px solid var(--border); border-radius: 999px; background: rgba(255,255,255,.035); color: #d7deeb; font-size: 12px; }
+  .flow b { color: var(--accent); margin-right: 5px; }
+  .search-card { padding: 18px; border: 1px solid rgba(255,255,255,.12); border-radius: 26px; background: linear-gradient(135deg, rgba(36,43,59,.95), rgba(25,30,41,.92)); box-shadow: 0 18px 60px rgba(0,0,0,.2); }
+  .search-label { margin: 1px 2px 12px; color: #d9dfeb; font-size: 13px; font-weight: 680; }
+  .search-box { display: flex; gap: 10px; }
   .search-box input {
-    flex: 1;
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    color: var(--text);
-    font-size: 16px;
-    padding: 14px 16px;
-    outline: none;
-    transition: border-color 0.2s;
+    flex: 1; min-width: 0; background: rgba(8, 11, 17, .55); border: 1px solid var(--border);
+    border-radius: 16px; color: var(--text); font-size: 16px; padding: 15px 17px; outline: none;
+    transition: border-color .2s, box-shadow .2s, background .2s;
   }
-  .search-box input:focus { border-color: var(--accent); }
-  .search-box input::placeholder { color: var(--muted); }
+  .search-box input:focus { border-color: var(--cyan); background: rgba(8,11,17,.8); box-shadow: 0 0 0 4px rgba(131,216,230,.12); }
+  .search-box input::placeholder { color: #7f8999; }
   .btn {
-    background: var(--accent);
-    border: none;
-    border-radius: var(--radius);
-    color: #fff;
-    cursor: pointer;
-    font-size: 15px;
-    font-weight: 600;
-    padding: 14px 20px;
-    transition: opacity 0.2s;
-    white-space: nowrap;
+    border: 0; border-radius: 16px; color: #302114; cursor: pointer; font-size: 14px; font-weight: 800;
+    padding: 14px 20px; white-space: nowrap;
+    background: linear-gradient(135deg, #ffd38e, var(--accent-strong));
+    box-shadow: 0 8px 24px rgba(255, 157, 74, .17);
+    transition: transform .18s, filter .18s, box-shadow .18s;
   }
-  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .btn:hover:not(:disabled) { opacity: 0.85; }
-  .btn-outline {
-    background: transparent;
-    border: 1px solid var(--accent);
-    color: var(--accent);
-  }
-
-  .status {
-    text-align: center;
-    padding: 30px;
-    color: var(--muted);
-    font-size: 14px;
-  }
-  .spinner {
-    width: 32px; height: 32px;
-    border: 3px solid var(--border);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-    margin: 0 auto 12px;
-  }
+  .btn:disabled { opacity: .48; cursor: not-allowed; box-shadow: none; }
+  .btn:hover:not(:disabled) { transform: translateY(-2px); filter: brightness(1.07); box-shadow: 0 11px 30px rgba(255,157,74,.25); }
+  .btn:active:not(:disabled) { transform: scale(.98); }
+  .btn-outline { background: var(--surface-raised); border: 1px solid var(--border); color: var(--text); box-shadow: none; }
+  .status { text-align: center; padding: 34px 20px; color: var(--muted); font-size: 14px; }
+  .spinner { width: 28px; height: 28px; border: 3px solid rgba(255,255,255,.14); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; margin: 0 auto 12px; }
   @keyframes spin { to { transform: rotate(360deg); } }
-
-  .results-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 12px;
-  }
-  .results-header h2 { font-size: 16px; font-weight: 600; }
-  .results-header span { font-size: 13px; color: var(--muted); }
-
+  .results-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 14px; margin: 32px 2px 14px; }
+  .results-header h2 { font-size: 20px; font-weight: 760; letter-spacing: -.025em; }
+  .results-header span { color: var(--muted); font-size: 13px; text-align: right; overflow-wrap: anywhere; }
+  .load-progress { display: flex; align-items: center; gap: 12px; padding: 14px 16px; margin-bottom: 19px; border: 1px solid rgba(131,216,230,.2); border-radius: 18px; background: rgba(131,216,230,.07); animation: soft-pulse 2s ease-in-out infinite; }
+  .load-dot { flex: 0 0 9px; height: 9px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 16px rgba(131,216,230,.7); }
+  .load-copy { flex: 1; color: #e1eaf2; font-size: 13px; line-height: 1.45; }
+  .progress-track { height: 4px; margin-top: 8px; background: rgba(255,255,255,.12); border-radius: 99px; overflow: hidden; }
+  .progress-fill { height: 100%; background: linear-gradient(90deg,var(--cyan),var(--accent)); border-radius: inherit; transition: width .45s ease; }
+  @keyframes soft-pulse { 50% { border-color: rgba(131,216,230,.38); } }
   .result-item {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    margin-bottom: 10px;
-    padding: 14px 16px;
-    cursor: pointer;
-    transition: border-color 0.15s, background 0.15s;
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
+    display: flex; align-items: flex-start; gap: 13px; margin-bottom: 9px; padding: 15px 16px;
+    cursor: pointer; background: linear-gradient(125deg, rgba(34,41,56,.96), rgba(25,30,41,.96));
+    border: 1px solid var(--border); border-radius: 18px;
+    transition: border-color .18s, background .18s, transform .18s, box-shadow .18s;
+    animation: rise-in .32s cubic-bezier(.2,.8,.2,1) both;
   }
-  .result-item:hover { border-color: #444; }
-  .result-item.selected {
-    border-color: var(--accent);
-    background: rgba(229,9,20,0.08);
-  }
-  .check {
-    width: 22px; height: 22px;
-    border: 2px solid var(--border);
-    border-radius: 6px;
-    flex-shrink: 0;
-    margin-top: 2px;
-    display: flex; align-items: center; justify-content: center;
-    transition: all 0.15s;
-  }
-  .selected .check {
-    background: var(--accent);
-    border-color: var(--accent);
-  }
-  .check-mark { display: none; color: #fff; font-size: 13px; font-weight: 700; }
+  .result-item:hover { border-color: rgba(131,216,230,.45); transform: translateY(-2px); box-shadow: 0 9px 24px rgba(0,0,0,.16); }
+  .result-item.selected { border-color: var(--accent); background: linear-gradient(125deg, rgba(255,180,95,.16), rgba(32,39,53,.95)); box-shadow: inset 0 0 0 1px rgba(255,180,95,.12); }
+  .result-item.disabled { cursor: default; opacity: .76; }
+  .check { display: flex; flex: 0 0 21px; align-items: center; justify-content: center; width: 21px; height: 21px; margin-top: 1px; border: 1.5px solid rgba(255,255,255,.27); border-radius: 7px; transition: all .18s; }
+  .selected .check { background: var(--accent); border-color: var(--accent); transform: scale(1.06); }
+  .check-mark { display: none; color: #332215; font-size: 13px; font-weight: 900; }
   .selected .check-mark { display: block; }
   .result-info { flex: 1; min-width: 0; }
-  .result-label { font-size: 14px; font-weight: 500; line-height: 1.4; word-break: break-word; }
-  .result-clean { font-size: 12px; color: var(--muted); margin-top: 4px; word-break: break-word; }
-  .result-number { color: var(--muted); font-size: 12px; min-width: 32px; }
-  .page-heading { margin: 22px 0 10px; font-size: 14px; color: #b9c0cb; }
-  .warning { background: #352b16; border: 1px solid #705a24; border-radius: 10px; color: #f4d88a; padding: 12px 14px; margin: 10px 0 16px; font-size: 13px; }
-  .result-open { color: #8ab4ff; display: inline-block; margin-top: 7px; font-size: 13px; }
-
+  .result-label { font-size: 14px; font-weight: 620; line-height: 1.5; overflow-wrap: anywhere; }
+  .result-clean { color: var(--muted); font-size: 12px; margin-top: 5px; overflow-wrap: anywhere; }
+  .result-number { color: #8190a4; font-size: 12px; min-width: 28px; padding-top: 2px; font-variant-numeric: tabular-nums; }
+  .page-heading { display: flex; align-items: center; gap: 10px; margin: 23px 3px 10px; color: #d8e1ef; font-size: 13px; font-weight: 750; }
+  .page-heading::after { content: ''; height: 1px; flex: 1; background: var(--border); }
+  .warning { background: rgba(255,194,96,.1); border: 1px solid rgba(255,194,96,.26); border-radius: 15px; color: #ffdfa3; padding: 13px 15px; margin: 12px 0 16px; font-size: 13px; line-height: 1.5; }
+  .result-open { color: var(--cyan); display: inline-block; margin-top: 7px; font-size: 13px; }
   .actions {
-    position: sticky;
-    bottom: 0;
-    background: var(--bg);
-    border-top: 1px solid var(--border);
-    padding: 14px 16px;
-    display: flex;
-    gap: 10px;
-    align-items: center;
+    position: fixed; z-index: 12; left: 50%; bottom: max(16px, env(safe-area-inset-bottom)); transform: translateX(-50%);
+    width: min(100% - 32px, 650px); padding: 10px; display: flex; gap: 9px; align-items: center;
+    border: 1px solid rgba(255,255,255,.14); border-radius: 20px;
+    background: rgba(25,30,41,.91); backdrop-filter: blur(20px); box-shadow: 0 14px 55px rgba(0,0,0,.45);
+    animation: rise-in .25s ease both;
   }
   .actions .btn { flex: 1; text-align: center; }
-  .selected-count { font-size: 13px; color: var(--muted); white-space: nowrap; }
-
-  .log-box {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 14px 16px;
-    margin-top: 16px;
-  }
-  .log-box h3 { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
-  .log-line { font-size: 13px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+  .selected-count { color: #dce3ee; font-size: 13px; white-space: nowrap; padding: 0 8px; }
+  .log-box { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 16px; margin-top: 16px; }
+  .log-box h3 { font-size: 14px; font-weight: 700; margin-bottom: 10px; }
+  .log-line { font-size: 13px; padding: 7px 0; border-bottom: 1px solid var(--border); }
   .log-line:last-child { border-bottom: none; }
-  .log-line.ok { color: var(--green); }
-  .log-line.err { color: var(--red); }
-
+  .log-line.ok { color: var(--green); } .log-line.err { color: var(--red); }
   .empty { text-align: center; padding: 40px 20px; color: var(--muted); font-size: 14px; }
-  .tag {
-    display: inline-block;
-    background: rgba(229,9,20,0.15);
-    color: var(--accent);
-    border-radius: 4px;
-    font-size: 11px;
-    font-weight: 600;
-    padding: 2px 6px;
-    margin-right: 4px;
-    margin-top: 4px;
+  @keyframes rise-in { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: translateY(0); } }
+  @media (max-width: 620px) {
+    .header { padding: 12px 17px; }
+    .header-links { gap: 12px; font-size: 12px; }
+    .container { width: min(100% - 28px, 920px); padding-top: 32px; }
+    .intro h2 { font-size: 34px; }
+    .search-card { padding: 13px; border-radius: 21px; }
+    .search-box { flex-direction: column; }
+    .search-box .btn { width: 100%; }
+    .results-header { align-items: flex-start; flex-direction: column; gap: 5px; }
+    .results-header span { text-align: left; }
+    .actions { width: calc(100% - 20px); bottom: max(10px, env(safe-area-inset-bottom)); gap: 6px; padding: 8px; }
+    .selected-count { font-size: 12px; padding: 0 4px; }
+    .actions .btn { padding: 13px 11px; font-size: 13px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
   }
 </style>
 </head>
 <body>
 
 <div class="header">
+  <div class="brand-mark" aria-hidden="true">C</div>
   <div>
     <h1>CVFetch</h1>
-    <span>Fetch movies to Stremio</span>
+    <span>Telegram → Stremio library</span>
   </div>
   <nav class="header-links"><a href="/telegram-login">Telegram</a><form method="post" action="/logout"><button type="submit">Sign out</button></form></nav>
 </div>
 
-<div class="container">
-  <div class="search-box">
-    <input type="text" id="queryInput" placeholder="Movie name..." autocomplete="off" />
-    <button class="btn" id="searchBtn" onclick="doSearch()">Search</button>
-  </div>
+<main class="container">
+  <section class="intro">
+    <div class="eyebrow">Your media, one search away</div>
+    <h2>Find it. Send it.<br>Watch it in Stremio.</h2>
+    <p>Search Telegram results, choose the files you want, and send them to your connected channel. CVFetch then signals Telegram-Stremio to refresh its library.</p>
+    <div class="flow" aria-label="How it works">
+      <span><b>01</b> Search a title</span><span><b>02</b> Choose results</span><span><b>03</b> Fetch to channel</span>
+    </div>
+  </section>
+  <section class="search-card" aria-label="Search Telegram">
+    <div class="search-label">What are you looking for?</div>
+    <div class="search-box">
+      <input type="text" id="queryInput" placeholder="Try a movie or series name..." autocomplete="off" />
+      <button class="btn" id="searchBtn" onclick="doSearch()">Search titles&nbsp; →</button>
+    </div>
+  </section>
 
   <div id="content">
     <div class="empty">Search for a movie to get started</div>
   </div>
-</div>
+</main>
 
 <div class="actions" id="actions" style="display:none">
   <span class="selected-count" id="selCount">0 selected</span>
-  <button class="btn btn-outline" onclick="selectAll()">All</button>
+  <button class="btn btn-outline" onclick="selectAll()">Select all</button>
   <button class="btn" id="fetchBtn" onclick="doFetch()">Fetch →</button>
 </div>
 
@@ -216,7 +193,7 @@
 let currentSession = null;
 let results = [];
 let selected = new Set();
-let pollTimer = null;
+let pollTimer = null;\nlet pollBusy = false;\nlet lastRenderKey = '';\nlet searchComplete = false;
 
 const queryInput = document.getElementById('queryInput');
 const content = document.getElementById('content');
@@ -240,6 +217,8 @@ async function doSearch() {
   if (!query) return;
 
   clearPoll();
+  lastRenderKey = '';
+  searchComplete = false;
   selected.clear();
   actions.style.display = 'none';
   searchBtn.disabled = true;
@@ -262,13 +241,21 @@ async function doSearch() {
 }
 
 function pollStatus() {
-  pollTimer = setInterval(async () => {
+  const check = async () => {
+    if (pollBusy || !currentSession) return;
+    pollBusy = true;
     try {
       const res = await fetch(`/api/status/${currentSession}`);
       const data = await res.json();
       handleStatus(data);
-    } catch (e) {}
-  }, 2000);
+    } catch (e) {
+      // Keep polling through brief network hiccups.
+    } finally {
+      pollBusy = false;
+    }
+  };
+  check();
+  pollTimer = setInterval(check, 700);
 }
 
 function clearPoll() {
@@ -277,7 +264,13 @@ function clearPoll() {
 
 function handleStatus(data) {
   if (data.status === 'searching' || data.status === 'pending') {
-    setLoading('Talking to bot...');
+    searchComplete = false;
+    results = data.results || [];
+    if (results.length) {
+      renderResults(data.warning, true, data.pages_loaded || 0, data.pages_total || 0);
+    } else {
+      setLoading(data.status === 'pending' ? 'Starting your search...' : 'Talking to Telegram search bot...');
+    }
     return;
   }
   if (data.status === 'joining') {
@@ -298,21 +291,22 @@ function handleStatus(data) {
   }
   if (data.status === 'ready') {
     clearPoll();
-    results = data.results;
-    renderResults(data.warning);
+    searchComplete = true;
+    results = data.results || [];
+    renderResults(data.warning, false, data.pages_loaded || 0, data.pages_total || 0);
     searchBtn.disabled = false;
     return;
   }
   if (data.status === 'fetching') {
     const done = data.fetched || 0;
     const total = data.total || 0;
-    setLoading(`Fetching ${done}/${total} files...`);
+    setLoading(`Sending files to your channel... ${done}/${total}`);
     renderLog(data.fetch_log || []);
     return;
   }
   if (data.status === 'done') {
     clearPoll();
-    setLoading('Done!');
+    setLoading('All done — your channel has been updated.');
     renderLog(data.fetch_log || []);
     actions.style.display = 'none';
     fetchBtn.disabled = false;
@@ -320,20 +314,33 @@ function handleStatus(data) {
   }
 }
 
-function renderResults(warning = null) {
+function renderResults(warning = null, loading = false, pagesLoaded = 0, pagesTotal = 0) {
   if (!results.length) {
     content.innerHTML = '<div class="empty">No results found</div>';
+    actions.style.display = 'none';
     return;
   }
 
-  const pageTotal = Math.max(...results.map(r => Number(r.page_total || r.page || 1)));
+  const pageTotal = Math.max(pagesTotal, ...results.map(r => Number(r.page_total || r.page || 1)));
+  const key = [results.length, pagesLoaded, pageTotal, loading, warning || ''].join(':');
+  if (key === lastRenderKey) return;
+  lastRenderKey = key;
+
   const header = `
     <div class="results-header">
-      <h2>${results.length} options · ${pageTotal} page${pageTotal === 1 ? '' : 's'}</h2>
-      <span>${queryInput.value.trim()}</span>
+      <h2>${results.length} result${results.length === 1 ? '' : 's'} found</h2>
+      <span>${escHtml(queryInput.value.trim())}</span>
     </div>
   `;
-
+  const progress = loading ? `
+    <div class="load-progress" role="status" aria-live="polite">
+      <span class="load-dot" aria-hidden="true"></span>
+      <div class="load-copy">
+        <strong>Reading Telegram pages</strong> · ${pagesLoaded} of ${pageTotal || '…'} loaded.
+        New results will appear here as they arrive.
+        <div class="progress-track"><div class="progress-fill" style="width:${pageTotal ? Math.min(100, pagesLoaded / pageTotal * 100) : 18}%"></div></div>
+      </div>
+    </div>` : '';
   let lastPage = null;
   const items = results.map((r, i) => {
     const page = Number(r.page || 1);
@@ -343,16 +350,20 @@ function renderResults(warning = null) {
     if (r.button_type === 'url') {
       const selectable = Boolean(r.can_fetch);
       const action = selectable
-        ? '<div class="result-clean">Select this result, then press Fetch</div>'
+        ? '<div class="result-clean">Choose this result, then send it to your channel</div>'
         : `<div class="result-clean">This link cannot be fetched automatically${url ? ` · <a class="result-open" href="${escHtml(url)}" target="_blank" rel="noopener noreferrer">Open in Telegram ↗</a>` : ''}</div>`;
       return `${heading}<div class="result-item${selectable ? '' : ' disabled'}" ${selectable ? `id="item_${i}" onclick="toggleSelect(${i})"` : ''}>${selectable ? '<div class="check"><span class="check-mark">✓</span></div>' : ''}<span class="result-number">${i + 1}.</span><div class="result-info"><div class="result-label">${escHtml(r.label)}</div>${action}</div></div>`;
     }
     return `${heading}<div class="result-item" id="item_${i}" onclick="toggleSelect(${i})"><div class="check"><span class="check-mark">✓</span></div><span class="result-number">${i + 1}.</span><div class="result-info"><div class="result-label">${escHtml(r.label)}</div><div class="result-clean">→ ${escHtml(r.clean_name)}</div></div></div>`;
   }).join('');
 
-  content.innerHTML = header + (warning ? `<div class="warning">${escHtml(warning)}</div>` : '') + items;
-  actions.style.display = 'flex';
-  updateSelCount();
+  content.innerHTML = header + progress + (warning ? `<div class="warning">${escHtml(warning)}</div>` : '') + items;
+  if (loading || !searchComplete) {
+    actions.style.display = 'none';
+  } else {
+    actions.style.display = 'flex';
+    updateSelCount();
+  }
 }
 
 function toggleSelect(i) {
