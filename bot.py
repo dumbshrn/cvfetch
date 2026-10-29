@@ -114,6 +114,14 @@ def clean_filename(label: str) -> str:
     return (stem or "Telegram media") + ".mkv"
 
 
+def caption_from_result_label(label: str) -> str:
+    """Use the selected Telegram result text as the copied file's metadata caption."""
+    text = re.sub(r"^\\s*\\[[\\d.,]+\\s*(?:GB|MB|TB)\\]\\s*", "", label, flags=re.I)
+    text = re.sub(r"\\.(?:mkv|mp4|avi|mov|webm|m4v)$", "", text, flags=re.I)
+    text = re.sub(r"\\s+", " ", text).strip(" ._-–—")
+    return text[:1024] or clean_filename(label).removesuffix(".mkv")
+
+
 def set_session(session_id: str, **values: Any) -> None:
     with state_lock:
         if session_id in sessions:
@@ -668,7 +676,7 @@ async def fetch_selected(session_id: str, indices: list[int]) -> None:
                     file_msg, _ = await click_result(item)
                     if not file_msg:
                         raise TimeoutError("No media arrived before timeout.")
-                    trigger_chat_id = await copy_media_to_destination(client, file_msg, item["clean_name"])
+                    trigger_chat_id = await copy_media_to_destination(client, file_msg, caption_from_result_label(item.get("label") or item["clean_name"]))
                     with state_lock:
                         session["fetched"] += 1
                         session["fetch_log"].append({"ok": True, "text": item["clean_name"]})
