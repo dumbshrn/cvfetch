@@ -2,6 +2,7 @@
 
 import asyncio
 import hmac
+import html
 import logging
 import os
 import re
@@ -115,10 +116,18 @@ def clean_filename(label: str) -> str:
 
 
 def caption_from_result_label(label: str) -> str:
-    """Use the selected Telegram result text as the copied file's metadata caption."""
-    text = re.sub(r"^\s*\[[\d.,]+\s*(?:GB|MB|TB)\]\s*", "", label, flags=re.I)
-    text = re.sub(r"\.(?:mkv|mp4|avi|mov|webm|m4v)$", "", text, flags=re.I)
-    text = re.sub(r"\s+", " ", text).strip(" ._-–—")
+    """Normalize a search button label into a title Stremio can recognize."""
+    text = html.unescape(label or "")
+    text = re.sub(r"^\s*\[[\d.,]+\s*(?:GB|MB|TB)\]\s*", "", text, flags=re.I)
+    text = re.sub(r"\\([*_\[\]()~`])", r"\1", text)
+    text = re.sub(r"[*_~`]", "", text)
+    text = re.sub(r"\\s+", " ", text).strip()
+    # WMR is a release/channel prefix in some search results, not part of the title.
+    text = re.sub(r"^WMR(?:[ ._:-]+|$)", "", text, flags=re.I)
+    text = re.sub(r"\\s+", " ", text).strip()
+    text = re.sub(r"\\.(?:mkv|mp4|avi|mov|webm|m4v)\\s*$", "", text, flags=re.I)
+    text = re.sub(r"^[^\\w]+", "", text, flags=re.UNICODE)
+    text = re.sub(r"\\s+", " ", text).strip(" ._-–—\\\\/")
     return text[:1024] or clean_filename(label).removesuffix(".mkv")
 
 
