@@ -714,8 +714,8 @@ async def click_result(item: dict[str, Any]) -> tuple[Message | None, int]:
     return file_msg, max(latest_id, file_msg.id if file_msg else latest_id)
 
 
-async def copy_media_to_destination(client: Client, file_msg: Message, caption: str) -> int:
-    """Resolve both Telegram peers before copying media with the cleaned caption."""
+async def copy_media_to_destination(client: Client, file_msg: Message, caption: str) -> Message:
+    """Resolve both Telegram peers and return the copied channel message."""
     target: int | str = AUTH_CHANNEL
     if re.fullmatch(r"-?\d+", AUTH_CHANNEL):
         target = int(AUTH_CHANNEL)
@@ -740,7 +740,7 @@ async def copy_media_to_destination(client: Client, file_msg: Message, caption: 
 
     source_chat_id = file_msg.chat.id if file_msg.chat else CV_BOT
     try:
-        await client.copy_message(
+        copied_message = await client.copy_message(
             chat_id=destination.id,
             from_chat_id=source_chat_id,
             message_id=file_msg.id,
@@ -752,7 +752,26 @@ async def copy_media_to_destination(client: Client, file_msg: Message, caption: 
                 "Telegram could not resolve the source file or destination channel. Check AUTH_CHANNEL and make sure the connected account has opened the source bot and can post in the destination."
             ) from exc
         raise
-    return destination.id
+    return copied_message
+
+
+async def wait_for_destination_unsupported(
+    client: Client,
+    chat_id: int,
+    copied_message_id: int,
+    timeout: int = 20,
+) -> Message | None:
+    """Wait for Telegram-Stremio to reject this exact copied message in the channel."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        async for msg in client.get_chat_history(chat_id, limit=30):
+            if msg.id <= copied_message_id or not is_unsupported_response(msg):
+                continue
+            reply = msg.reply_to_message
+            if reply and reply.id == copied_message_id:
+                return msg
+        await asyncio.sleep(0.75)
+    return None
 
 
 async def search_cv_bot(session_id: str, query: str) -> None:
@@ -827,7 +846,6 @@ async def search_cv_bot(session_id: str, query: str) -> None:
 
 
 async def fetch_selected(session_id: str, indices: list[int]) -> None:
-    trigger_chat_id = None
     client = None
     return_to_selection = False
     try:
@@ -850,7 +868,20 @@ async def fetch_selected(session_id: str, indices: list[int]) -> None:
                     file_msg, _ = await click_result(item)
                     if not file_msg:
                         raise TimeoutError("No media arrived before timeout.")
-                    trigger_chat_id = await copy_media_to_destination(client, file_msg, caption_from_result_label(item.get("label") or item["clean_name"], tmdb))
+                    copied_message = await copy_media_to_destination(
+                        client,
+                        file_msg,
+                        caption_from_result_label(item.get("label") or item["clean_name"], tmdb),
+                    )
+                    destination_id = copied_message.chat.id
+                    await client.send_message(destination_id, REFRESH_TRIGGER)
+                    rejection = await wait_for_destination_unsupported(
+                        client, destination_id, copied_message.id
+                    )
+                    if rejection:
+                        raise UnsupportedResultError(
+                            "Telegram-Stremio replied “Not supported” to this file. Choose another result."
+                        )
                     with state_lock:
                         session["fetched"] += 1
                         session["fetched_indices"].append(idx)
@@ -872,11 +903,6 @@ async def fetch_selected(session_id: str, indices: list[int]) -> None:
                     with state_lock:
                         session["fetch_log"].append({"ok": False, "text": f"{item['label']} — {exc}"})
     finally:
-        if client is not None and trigger_chat_id is not None:
-            try:
-                await client.send_message(trigger_chat_id, REFRESH_TRIGGER)
-            except Exception:
-                log.warning("Media was copied, but Telegram-Stremio refresh trigger could not be sent", exc_info=True)
         if return_to_selection:
             set_session(session_id, status="ready", fetch_queued=False,
                         fetch_interrupted=True,
