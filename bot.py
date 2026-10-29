@@ -440,7 +440,7 @@ async def move_to_result_page(message: Message, target_page: int) -> Message:
     raise RuntimeError("The search bot's page navigation did not reach the selected result.")
 
 
-async def collect_result_pages(first_message: Message, max_pages: int = 20) -> tuple[list[dict[str, Any]], str | None]:
+async def collect_result_pages(first_message: Message, max_pages: int = 20, on_page=None) -> tuple[list[dict[str, Any]], str | None]:
     """Collect selectable result buttons from successive bot pages."""
     current = first_message
     results: list[dict[str, Any]] = []
@@ -469,6 +469,9 @@ async def collect_result_pages(first_message: Message, max_pages: int = 20) -> t
                 "page_total": page_total,
                 "clean_name": clean_filename(label),
             })
+
+        if on_page:
+            on_page(list(results), page_number, page_total, current.id)
 
         next_button = navigation_button(current, "next")
         if not next_button:
@@ -641,14 +644,22 @@ async def search_cv_bot(session_id: str, query: str) -> None:
                 )
             if not reply:
                 raise TimeoutError("No response from the search bot. Try again or check the bot in Telegram.")
-            results, warning = await collect_result_pages(reply)
+            def publish_page(partial_results, pages_loaded, pages_total, message_id):
+                set_session(session_id, status="searching", results=partial_results,
+                            result_msg_id=message_id, pages_loaded=pages_loaded,
+                            pages_total=pages_total)
+
+            results, warning = await collect_result_pages(reply, on_page=publish_page)
             selectable = [item for item in results if item["can_fetch"]]
             link_count = len(results) - len(selectable)
             if not results and keyboard_buttons(reply):
                 warning = "The bot replied with buttons CVFetch cannot read. Please check its button type."
             elif link_count:
                 warning = f"{link_count} Telegram link{'s' if link_count != 1 else ''} cannot be fetched automatically."
+            last_page = max((int(item.get("page", 1)) for item in results), default=0)
+            known_pages = max((int(item.get("page_total", item.get("page", 1))) for item in results), default=last_page)
             set_session(session_id, results=results, result_msg_id=reply.id,
+                        pages_loaded=last_page, pages_total=known_pages,
                         status="ready" if results else "no_results",
                         warning=warning,
                         error=None if results else (reply.text or "No selectable results found."))
