@@ -116,9 +116,9 @@ def clean_filename(label: str) -> str:
 
 def caption_from_result_label(label: str) -> str:
     """Use the selected Telegram result text as the copied file's metadata caption."""
-    text = re.sub(r"^\\s*\\[[\\d.,]+\\s*(?:GB|MB|TB)\\]\\s*", "", label, flags=re.I)
-    text = re.sub(r"\\.(?:mkv|mp4|avi|mov|webm|m4v)$", "", text, flags=re.I)
-    text = re.sub(r"\\s+", " ", text).strip(" ._-–—")
+    text = re.sub(r"^\s*\[[\d.,]+\s*(?:GB|MB|TB)\]\s*", "", label, flags=re.I)
+    text = re.sub(r"\.(?:mkv|mp4|avi|mov|webm|m4v)$", "", text, flags=re.I)
+    text = re.sub(r"\s+", " ", text).strip(" ._-–—")
     return text[:1024] or clean_filename(label).removesuffix(".mkv")
 
 
