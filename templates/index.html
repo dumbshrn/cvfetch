@@ -236,7 +236,7 @@ function handleStatus(data) {
     } else if (results.length) {
       renderResults(data.warning, true, data.pages_loaded || 0, data.pages_total || 0);
     } else {
-      setLoading(data.status === 'pending' ? 'Starting your search...' : 'Talking to Telegram search bot...');
+      setLoading(data.notice || (data.status === 'pending' ? 'Starting your search...' : 'Talking to Telegram search bot...'));
     }
     return;
   }
