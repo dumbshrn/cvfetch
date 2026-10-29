@@ -122,48 +122,50 @@ def caption_from_result_label(label: str, tmdb: dict[str, Any] | None = None) ->
     """Build a clean Stremio-readable caption, preferring the selected TMDB title."""
     text = html.unescape(label or "")
     text = re.sub(r"^\s*\[[\d.,]+\s*(?:GB|MB|TB)\]\s*", "", text, flags=re.I)
-    text = re.sub(r"\\([*_\[\]()~`])", r"\1", text)
-    text = re.sub(r"[*_~`]", "", text)
-    text = re.sub(r"\\s+", " ", text).strip()
-    text = re.sub(r"\\.(?:mkv|mp4|avi|mov|webm|m4v)\\s*$", "", text, flags=re.I).strip()
+    text = re.sub(r"\\([*_\[\]()~])", r"\1", text)
+    text = re.sub(r"[*_~]", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"\.(?:mkv|mp4|avi|mov|webm|m4v)\s*$", "", text, flags=re.I).strip()
+    # Remove known release branding; TMDB selection below removes any unknown title prefix.
     text = re.sub(r"^WMR(?:[ ._:-]+|$)", "", text, flags=re.I)
-    text = re.sub(r"^[^\\w]+", "", text, flags=re.UNICODE)
-    text = re.sub(r"\\s+", " ", text).strip(" ._-–—\\\\/")
+    text = re.sub(r"^[^\w]+", "", text, flags=re.UNICODE)
+    text = re.sub(r"\s+", " ", text).strip(" ._-–—\\/")
+
     if not tmdb or not tmdb.get("title"):
         return text[:1024] or clean_filename(label).removesuffix(".mkv")
 
     details = []
-    for pattern in (r"\\b2160\\s*p?\\b|\\b4k\\b", r"\\b1080\\s*p\\b", r"\\b720\\s*p\\b", r"\\b480\\s*p\\b", r"\\b360\\s*p\\b"):
+    for pattern in (r"\b2160\s*p?\b|\b4k\b", r"\b1080\s*p\b", r"\b720\s*p\b", r"\b480\s*p\b", r"\b360\s*p\b"):
         match = re.search(pattern, text, re.I)
         if match:
-            details.append("2160p" if "2160" in match.group(0) or match.group(0).lower() == "4k" else match.group(0).lower().replace(" ", ""))
+            value = match.group(0).lower().replace(" ", "")
+            details.append("2160p" if value == "4k" else value)
             break
-    for pattern, value in ((r"\\bBlu[ .-]?Ray\\b|\\bBRRip\\b", "BluRay"),
-                           (r"\\bWEB[ .-]?DL\\b", "WEB-DL"), (r"\\bWEBRip\\b", "WEBRip"),
-                           (r"\\bHDRip\\b", "HDRip"), (r"\\bHDTV\\b", "HDTV")):
+    for pattern, value in ((r"\bBlu[ .-]?Ray\b|\bBRRip\b", "BluRay"),
+                           (r"\bWEB[ .-]?DL\b", "WEB-DL"), (r"\bWEBRip\b", "WEBRip"),
+                           (r"\bHDRip\b", "HDRip"), (r"\bHDTV\b", "HDTV")):
         if re.search(pattern, text, re.I):
             details.append(value)
             break
-    episode = re.search(r"\\bS\\d{1,2}E\\d{1,3}\\b", text, re.I)
+    episode = re.search(r"\bS\d{1,2}E\d{1,3}\b", text, re.I)
     if episode:
         details.insert(0, episode.group(0).upper())
-    for pattern, value in ((r"\\bx26[45]\\b", lambda m: m.group(0).lower()),
-                           (r"\\bHEVC\\b", "HEVC"), (r"\\bAV1\\b", "AV1"), (r"\\bHDR10\\+?\\b", "HDR10")):
+    for pattern, value in ((r"\bx26[45]\b", None), (r"\bHEVC\b", "HEVC"),
+                           (r"\bAV1\b", "AV1"), (r"\bHDR10\+?\b", "HDR10")):
         match = re.search(pattern, text, re.I)
         if match:
-            details.append(value(match) if callable(value) else value)
+            details.append(match.group(0).lower() if value is None else value)
             break
-    language_map = (("Malayalam", r"\\b(?:mal|malayalam)\\b"), ("Tamil", r"\\b(?:tam|tamil)\\b"),
-                    ("Telugu", r"\\b(?:tel|telugu)\\b"), ("Hindi", r"\\b(?:hin|hindi)\\b"),
-                    ("Kannada", r"\\b(?:kan|kannada)\\b"), ("English", r"\\b(?:eng|english)\\b"))
+    language_map = (("Malayalam", r"\b(?:mal|malayalam)\b"), ("Tamil", r"\b(?:tam|tamil)\b"),
+                    ("Telugu", r"\b(?:tel|telugu)\b"), ("Hindi", r"\b(?:hin|hindi)\b"),
+                    ("Kannada", r"\b(?:kan|kannada)\b"), ("English", r"\b(?:eng|english)\b"))
     for name, pattern in language_map:
         if re.search(pattern, text, re.I):
             details.append(name)
             break
     title = str(tmdb["title"]).strip()
     year = str(tmdb.get("year") or "").strip()
-    canonical = " ".join(part for part in (title, year, *details) if part)
-    return canonical[:1024]
+    return " ".join(part for part in (title, year, *details) if part)[:1024]
 
 
 def set_session(session_id: str, **values: Any) -> None:
@@ -900,7 +902,7 @@ def api_tmdb_search():
             "id": item.get("id"),
             "media_type": media_type,
             "title": title,
-            "year": date[:4] if re.match(r"^\\d{4}", date) else "",
+            "year": date[:4] if re.match(r"^\d{4}", date) else "",
             "overview": str(item.get("overview") or ""),
             "poster": f"https://image.tmdb.org/t/p/w185{item['poster_path']}" if item.get("poster_path") else "",
             "original_title": str(item.get("original_title") or item.get("original_name") or ""),
@@ -924,7 +926,7 @@ def api_search():
             "id": selected_tmdb.get("id"),
             "media_type": "tv" if selected_tmdb.get("media_type") == "tv" else "movie",
             "title": str(selected_tmdb["title"]).strip()[:200],
-            "year": year if re.fullmatch(r"(?:19|20)\\d{2}", year) else "",
+            "year": year if re.fullmatch(r"(?:19|20)\d{2}", year) else "",
         }
     session_id = uuid.uuid4().hex
     with state_lock:
