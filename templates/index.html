@@ -45,11 +45,16 @@ button,input{font:inherit}.header{display:flex;align-items:center;gap:12px;paddi
       <button class="btn" id="searchBtn" onclick="doSearch()">Search</button>
     </div>
   </section>
-  <p class="tmdb-note">Title matches powered by <a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer">TMDB</a>.</p>
+  <p class="tmdb-note">Title matches powered by <a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer">TMDB</a>. See credits below.</p>
 
   <div id="content">
     <div class="empty">Search for a movie to get started</div>
   </div>
+
+<footer class="tmdb-note" id="credits" style="margin:34px 0 10px;padding-top:14px;border-top:1px solid #292929;line-height:1.6">
+  <a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer"><img src="https://www.themoviedb.org/assets/2/v5/logos/stacked-white.svg" alt="The Movie Database" style="width:70px;height:auto;vertical-align:middle"></a>
+  <span style="margin-left:10px">This product uses the TMDB API but is not endorsed or certified by TMDB.</span>
+</footer>
 </main>
 
 <div class="actions" id="actions" style="display:none">
