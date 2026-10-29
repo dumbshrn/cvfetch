@@ -759,9 +759,9 @@ async def wait_for_destination_unsupported(
     client: Client,
     chat_id: int,
     copied_message_id: int,
-    timeout: int = 45,
+    timeout: int = 10,
 ) -> Message | None:
-    """Wait for a new Telegram-Stremio rejection in the destination channel."""
+    """Wait up to 10 seconds for a new Telegram-Stremio rejection in the destination channel."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         async for msg in client.get_chat_history(chat_id, limit=30):
