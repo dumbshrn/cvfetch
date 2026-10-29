@@ -13,6 +13,8 @@ services:
         sync: false
       - key: API_HASH
         sync: false
+      - key: TMDB_API_KEY
+        sync: false
       - key: AUTH_CHANNEL
         sync: false
       - key: SESSION_NAME
