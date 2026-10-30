@@ -119,53 +119,85 @@ def clean_filename(label: str) -> str:
 
 
 def caption_from_result_label(label: str, tmdb: dict[str, Any] | None = None) -> str:
-    """Build a clean Stremio-readable caption, preferring the selected TMDB title."""
+    """Build a clean Stremio-readable caption: 'Title Year Resolution'.
+
+    Resolution is extracted from the source label (1080p, 720p, 4K, 480p).
+    If none is found but HQ or HQ HDR is present, defaults to 1080p.
+    When a TMDB match is available its canonical title/year are used;
+    otherwise the title is derived from the source label directly.
+    """
     text = html.unescape(label or "")
+    # Strip file-size prefixes, markdown formatting, and file extensions
     text = re.sub(r"^\s*\[[\d.,]+\s*(?:GB|MB|TB)\]\s*", "", text, flags=re.I)
     text = re.sub(r"\\([*_\[\]()~])", r"\1", text)
     text = re.sub(r"[*_~]", "", text)
+    text = re.sub(r"\.(?:mkv|mp4|avi|mov|webm|m4v)\s*$", "", text, flags=re.I)
     text = re.sub(r"\s+", " ", text).strip()
-    text = re.sub(r"\.(?:mkv|mp4|avi|mov|webm|m4v)\s*$", "", text, flags=re.I).strip()
-    # Remove known release branding; TMDB selection below removes any unknown title prefix.
+
+    # Extract resolution before any further stripping
+    resolution = None
+    for pattern, value in (
+        (r"\b(4K|2160p)\b", "4K"),
+        (r"\b1080\s*p\b", "1080p"),
+        (r"\b720\s*p\b", "720p"),
+        (r"\b480\s*p\b", "480p"),
+        (r"\b360\s*p\b", "360p"),
+    ):
+        if re.search(pattern, text, re.I):
+            resolution = value
+            break
+    # HQ HDR or HQ with no explicit resolution → assume 1080p
+    if not resolution and re.search(r"\bHQ\b", text, re.I):
+        resolution = "1080p"
+
+    # Use TMDB title+year if available
+    if tmdb and tmdb.get("title"):
+        title = str(tmdb["title"]).strip()
+        year = str(tmdb.get("year") or "").strip()
+        parts = [p for p in (title, year, resolution) if p]
+        return " ".join(parts)[:1024]
+
+    # No TMDB: derive title from the label itself
+    # Strip emojis and leading non-word chars
+    text = re.sub(r"[^\x00-\x7F]", " ", text)  # non-ASCII (covers most emojis)
     text = re.sub(r"^WMR(?:[ ._:-]+|$)", "", text, flags=re.I)
-    text = re.sub(r"^[^\w]+", "", text, flags=re.UNICODE)
-    text = re.sub(r"\s+", " ", text).strip(" ._-–—\\/")
+    text = re.sub(r"^[^\w]+", "", text)
 
-    if not tmdb or not tmdb.get("title"):
-        return text[:1024] or clean_filename(label).removesuffix(".mkv")
+    # Extract year from label
+    year_match = re.search(r"\(?((?:19|20)\d{2})\)?", text)
+    year = year_match.group(1) if year_match else ""
 
-    details = []
-    for pattern in (r"\b2160\s*p?\b|\b4k\b", r"\b1080\s*p\b", r"\b720\s*p\b", r"\b480\s*p\b", r"\b360\s*p\b"):
-        match = re.search(pattern, text, re.I)
-        if match:
-            value = match.group(0).lower().replace(" ", "")
-            details.append("2160p" if value == "4k" else value)
-            break
-    for pattern, value in ((r"\bBlu[ .-]?Ray\b|\bBRRip\b", "BluRay"),
-                           (r"\bWEB[ .-]?DL\b", "WEB-DL"), (r"\bWEBRip\b", "WEBRip"),
-                           (r"\bHDRip\b", "HDRip"), (r"\bHDTV\b", "HDTV")):
-        if re.search(pattern, text, re.I):
-            details.append(value)
-            break
-    episode = re.search(r"\bS\d{1,2}E\d{1,3}\b", text, re.I)
-    if episode:
-        details.insert(0, episode.group(0).upper())
-    for pattern, value in ((r"\bx26[45]\b", None), (r"\bHEVC\b", "HEVC"),
-                           (r"\bAV1\b", "AV1"), (r"\bHDR10\+?\b", "HDR10")):
-        match = re.search(pattern, text, re.I)
-        if match:
-            details.append(match.group(0).lower() if value is None else value)
-            break
-    language_map = (("Malayalam", r"\b(?:mal|malayalam)\b"), ("Tamil", r"\b(?:tam|tamil)\b"),
-                    ("Telugu", r"\b(?:tel|telugu)\b"), ("Hindi", r"\b(?:hin|hindi)\b"),
-                    ("Kannada", r"\b(?:kan|kannada)\b"), ("English", r"\b(?:eng|english)\b"))
-    for name, pattern in language_map:
-        if re.search(pattern, text, re.I):
-            details.append(name)
-            break
-    title = str(tmdb["title"]).strip()
-    year = str(tmdb.get("year") or "").strip()
-    return " ".join(part for part in (title, year, *details) if part)[:1024]
+    # Grab title as everything before the year (or before noise tokens if no year)
+    if year_match:
+        title = text[:year_match.start()]
+    else:
+        title = text
+
+    # Strip all noise tokens from the title portion
+    noise = (
+        r"\b(?:TRUE\s+)?WEB[-\s]?(?:DL|Rip)\b",
+        r"\bBlu[-\s]?Ray\b|\bBRRip\b|\bBDRip\b",
+        r"\bHDRip\b|\bHDTV\b",
+        r"\bHQ\s*HDR\b|\bHQ\b|\bHDR\b",
+        r"\b4K\b|\b2160p\b|\b1080p?\b|\b720p?\b|\b480p?\b|\b360p?\b",
+        r"\bHEVC\b|\bAVC\b|\bAV1\b|\bx\s*26[45]\b",
+        r"\bDS4K\b",
+        r"\bS\d{2}E\d{2}\b",
+        r"@\w+",
+        r"#\w+",
+        r"\b(?:Malayalam|Hindi|Tamil|Telugu|Kannada|English|Bengali|Marathi)\b",
+        r"[-–—|•]+",
+        r"[\[\](){}]",
+    )
+    for pat in noise:
+        title = re.sub(pat, " ", title, flags=re.I)
+    title = re.sub(r"[^\w\s]", " ", title)
+    title = re.sub(r"\s+", " ", title).strip()
+    title = title.title()
+
+    parts = [p for p in (title, year, resolution) if p]
+    result = " ".join(parts)
+    return (result or clean_filename(label).removesuffix(".mkv"))[:1024]
 
 
 def set_session(session_id: str, **values: Any) -> None:
